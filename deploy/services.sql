@@ -1,0 +1,401 @@
+-- ============================================================
+-- Postgres Learning Studio - Service Management Module
+-- Gallery Compatible v3: lifecycle managed entirely by Gallery Operator
+-- No auto-stop tasks, no app-side start/stop scheduling
+-- ============================================================
+
+-- ============================================================
+-- Grant Callback (auto-create compute pool when privilege granted)
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE app_setup.grant_callback(privileges ARRAY)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+    has_create_pool BOOLEAN DEFAULT FALSE;
+    pool_name VARCHAR;
+    db_name VARCHAR;
+BEGIN
+    LET i INTEGER := 0;
+    WHILE (i < ARRAY_SIZE(:privileges)) DO
+        IF (GET(:privileges, i)::VARCHAR = 'CREATE COMPUTE POOL') THEN
+            has_create_pool := TRUE;
+        END IF;
+        i := i + 1;
+    END WHILE;
+
+    IF (:has_create_pool) THEN
+        SELECT CURRENT_DATABASE() INTO :db_name;
+        pool_name := :db_name || '_POOL';
+
+        BEGIN
+            EXECUTE IMMEDIATE 'CREATE COMPUTE POOL IF NOT EXISTS IDENTIFIER('''
+                || :pool_name || ''') '
+                || 'MIN_NODES = 1 MAX_NODES = 1 '
+                || 'INSTANCE_FAMILY = CPU_X64_XS '
+                || 'AUTO_RESUME = TRUE '
+                || 'AUTO_SUSPEND_SECS = 300';
+
+            MERGE INTO app_config.settings AS t
+            USING (SELECT 'compute_pool' AS key, :pool_name AS value) AS s
+            ON t.key = s.key
+            WHEN MATCHED THEN UPDATE SET value = s.value, updated_at = CURRENT_TIMESTAMP()
+            WHEN NOT MATCHED THEN INSERT (key, value) VALUES (s.key, s.value);
+
+        EXCEPTION WHEN OTHER THEN
+            RETURN 'Error creating compute pool: ' || SQLERRM;
+        END;
+    END IF;
+
+    RETURN 'Grant callback completed.';
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.grant_callback(ARRAY)
+    TO APPLICATION ROLE app_admin;
+
+-- ============================================================
+-- Compute Pool Management
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE app_setup.ensure_compute_pool()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+    pool_name VARCHAR;
+    db_name VARCHAR;
+BEGIN
+    BEGIN
+        SELECT value INTO :pool_name FROM app_config.settings WHERE key = 'compute_pool';
+    EXCEPTION WHEN OTHER THEN pool_name := NULL; END;
+
+    IF (:pool_name IS NULL OR :pool_name = '') THEN
+        SELECT CURRENT_DATABASE() INTO :db_name;
+        pool_name := :db_name || '_POOL';
+
+        EXECUTE IMMEDIATE 'CREATE COMPUTE POOL IF NOT EXISTS IDENTIFIER('''
+            || :pool_name || ''') '
+            || 'MIN_NODES = 1 MAX_NODES = 1 '
+            || 'INSTANCE_FAMILY = CPU_X64_XS '
+            || 'AUTO_RESUME = TRUE '
+            || 'AUTO_SUSPEND_SECS = 300';
+
+        MERGE INTO app_config.settings AS t
+        USING (SELECT 'compute_pool' AS key, :pool_name AS value) AS s
+        ON t.key = s.key
+        WHEN MATCHED THEN UPDATE SET value = s.value, updated_at = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (key, value) VALUES (s.key, s.value);
+    END IF;
+
+    RETURN pool_name;
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE app_setup.drop_compute_pool()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+    pool_name VARCHAR;
+BEGIN
+    BEGIN
+        SELECT value INTO :pool_name FROM app_config.settings WHERE key = 'compute_pool';
+    EXCEPTION WHEN OTHER THEN pool_name := NULL; END;
+
+    IF (:pool_name IS NULL OR :pool_name = '') THEN
+        RETURN 'No compute pool configured.';
+    END IF;
+
+    DROP SERVICE IF EXISTS app_services.postgres_learning_studio_service;
+    EXECUTE IMMEDIATE 'DROP COMPUTE POOL IF EXISTS IDENTIFIER(''' || :pool_name || ''')';
+
+    DELETE FROM app_config.settings WHERE key = 'compute_pool';
+
+    RETURN 'Compute pool ' || :pool_name || ' dropped.';
+EXCEPTION WHEN OTHER THEN
+    RETURN 'Error: ' || SQLERRM;
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.drop_compute_pool()
+    TO APPLICATION ROLE app_admin;
+
+-- ============================================================
+-- Service Lifecycle (Gallery Compatible v3)
+-- ============================================================
+
+-- Start the worker service (internal: called by resume_service on first run)
+CREATE OR REPLACE PROCEDURE app_setup.start_service()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+    pool_name VARCHAR;
+    pg_host VARCHAR;
+    cpu_request VARCHAR DEFAULT '0.5';
+    cpu_limit VARCHAR DEFAULT '2';
+    memory_request VARCHAR DEFAULT '1Gi';
+    memory_limit VARCHAR DEFAULT '4Gi';
+    create_sql VARCHAR;
+BEGIN
+    CALL app_setup.ensure_compute_pool() INTO :pool_name;
+
+    SELECT value INTO :pg_host FROM app_config.settings WHERE key = 'pg_host';
+    IF (:pg_host IS NULL OR :pg_host = '') THEN
+        RETURN 'ERROR: Postgres not configured. Run Postgres Setup first.';
+    END IF;
+
+    BEGIN SELECT value INTO :cpu_request FROM app_config.settings WHERE key = 'cpu_request';
+    EXCEPTION WHEN OTHER THEN NULL; END;
+    BEGIN SELECT value INTO :cpu_limit FROM app_config.settings WHERE key = 'cpu_limit';
+    EXCEPTION WHEN OTHER THEN NULL; END;
+    BEGIN SELECT value INTO :memory_request FROM app_config.settings WHERE key = 'memory_request';
+    EXCEPTION WHEN OTHER THEN NULL; END;
+    BEGIN SELECT value INTO :memory_limit FROM app_config.settings WHERE key = 'memory_limit';
+    EXCEPTION WHEN OTHER THEN NULL; END;
+
+    cpu_request := COALESCE(:cpu_request, '0.5');
+    cpu_limit := COALESCE(:cpu_limit, '2');
+    memory_request := COALESCE(:memory_request, '1Gi');
+    memory_limit := COALESCE(:memory_limit, '4Gi');
+
+    -- Resume compute pool if suspended
+    BEGIN
+        EXECUTE IMMEDIATE 'ALTER COMPUTE POOL IDENTIFIER(''' || :pool_name || ''') RESUME';
+    EXCEPTION WHEN OTHER THEN NULL; END;
+
+    -- Create service (CREATE IF NOT EXISTS for Gallery compatibility — never DROP)
+    create_sql := 'CREATE SERVICE IF NOT EXISTS app_services.postgres_learning_studio_service '
+        || 'IN COMPUTE POOL IDENTIFIER(''' || :pool_name || ''') '
+        || 'MIN_INSTANCES = 1 MAX_INSTANCES = 1 '
+        || 'EXTERNAL_ACCESS_INTEGRATIONS = (reference(''postgres_eai'')) '
+        || 'FROM SPECIFICATION_TEMPLATE_FILE = ''/service_spec.yml'' '
+        || 'USING ('
+        || 'PGHOST => ''"' || :pg_host || '"'', '
+        || 'COMPUTE_POOL => ''"' || :pool_name || '"'', '
+        || 'CPU_REQUEST => ''' || :cpu_request || ''', '
+        || 'CPU_LIMIT => ''' || :cpu_limit || ''', '
+        || 'MEMORY_REQUEST => ''' || :memory_request || ''', '
+        || 'MEMORY_LIMIT => ''' || :memory_limit || ''''
+        || ')';
+
+    EXECUTE IMMEDIATE :create_sql;
+
+    -- Resume service if it already existed but was suspended
+    BEGIN
+        ALTER SERVICE IF EXISTS app_services.postgres_learning_studio_service RESUME;
+    EXCEPTION WHEN OTHER THEN NULL; END;
+
+    GRANT USAGE ON SERVICE app_services.postgres_learning_studio_service TO APPLICATION ROLE app_user;
+    GRANT MONITOR ON SERVICE app_services.postgres_learning_studio_service TO APPLICATION ROLE app_user;
+
+    -- Grant service role for public endpoint access
+    GRANT SERVICE ROLE app_services.postgres_learning_studio_service!all_endpoints_usage TO APPLICATION ROLE app_admin;
+    GRANT SERVICE ROLE app_services.postgres_learning_studio_service!all_endpoints_usage TO APPLICATION ROLE app_user;
+
+    RETURN 'Service started.';
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.start_service()
+    TO APPLICATION ROLE app_admin;
+
+-- ============================================================
+-- Gallery Compatible v3: resume_service()
+-- This is the PRIMARY interface for Gallery Operator.
+-- Gallery Operator calls: CALL <app>.app_setup.resume_service()
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE app_setup.resume_service()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+    pool_name VARCHAR;
+    v_err VARCHAR;
+    v_result VARCHAR;
+    v_status VARCHAR;
+BEGIN
+    -- 1. Resume compute pool
+    BEGIN
+        SELECT value INTO :pool_name FROM app_config.settings WHERE key = 'compute_pool';
+        IF (:pool_name IS NOT NULL AND :pool_name != '') THEN
+            EXECUTE IMMEDIATE 'ALTER COMPUTE POOL IDENTIFIER(''' || :pool_name || ''') RESUME';
+        END IF;
+    EXCEPTION WHEN OTHER THEN NULL; END;
+
+    -- 2. Resume service
+    BEGIN
+        ALTER SERVICE IF EXISTS app_services.postgres_learning_studio_service RESUME;
+    EXCEPTION WHEN OTHER THEN
+        v_err := SQLERRM;
+        IF (:v_err ILIKE '%already%started%' OR :v_err ILIKE '%already%running%') THEN
+            NULL;
+        ELSEIF (:v_err ILIKE '%does not exist%') THEN
+            CALL app_setup.start_service() INTO :v_result;
+            RETURN 'CREATED: ' || :v_result;
+        ELSE
+            RETURN 'ERROR: ' || :v_err;
+        END IF;
+    END;
+
+    -- 3. Health check: detect stale image path
+    BEGIN
+        SELECT SYSTEM$GET_SERVICE_STATUS(
+            'app_services.postgres_learning_studio_service'
+        ) INTO :v_status;
+
+        IF (:v_status ILIKE '%Failed to pull image%') THEN
+            DROP SERVICE IF EXISTS app_services.postgres_learning_studio_service;
+            CALL app_setup.start_service() INTO :v_result;
+            RETURN 'RECREATED: stale image detected';
+        END IF;
+    EXCEPTION WHEN OTHER THEN
+        NULL;
+    END;
+
+    RETURN 'RESUMED';
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.resume_service()
+    TO APPLICATION ROLE app_admin;
+
+-- Drop the service (emergency use — not called by Gallery)
+CREATE OR REPLACE PROCEDURE app_setup.drop_service()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+BEGIN
+    DROP SERVICE IF EXISTS app_services.postgres_learning_studio_service;
+    RETURN 'Service dropped.';
+EXCEPTION WHEN OTHER THEN
+    RETURN 'Error: ' || SQLERRM;
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.drop_service()
+    TO APPLICATION ROLE app_admin;
+
+-- ============================================================
+-- Gallery Compatible v3: service_status()
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE app_setup.service_status()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+BEGIN
+    SHOW SERVICES LIKE 'POSTGRES_LEARNING_STUDIO_SERVICE' IN SCHEMA app_services;
+    LET rs RESULTSET := (SELECT "status" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())));
+    LET cur CURSOR FOR rs;
+    FOR rec IN cur DO
+        RETURN rec."status";
+    END FOR;
+    RETURN 'NOT_FOUND';
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.service_status()
+    TO APPLICATION ROLE app_admin;
+GRANT USAGE ON PROCEDURE app_setup.service_status()
+    TO APPLICATION ROLE app_user;
+
+-- ============================================================
+-- Gallery Compatible v3: service_url()
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE app_setup.service_url()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+BEGIN
+    SHOW ENDPOINTS IN SERVICE app_services.postgres_learning_studio_service;
+    LET rs RESULTSET := (SELECT "ingress_url" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())));
+    LET cur CURSOR FOR rs;
+    FOR rec IN cur DO
+        RETURN rec."ingress_url";
+    END FOR;
+    RETURN NULL;
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.service_url()
+    TO APPLICATION ROLE app_admin;
+GRANT USAGE ON PROCEDURE app_setup.service_url()
+    TO APPLICATION ROLE app_user;
+
+-- Backward-compatible alias
+CREATE OR REPLACE PROCEDURE app_setup.get_web_ui_url()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+    url VARCHAR DEFAULT '';
+BEGIN
+    BEGIN
+        SHOW ENDPOINTS IN SERVICE app_services.postgres_learning_studio_service;
+        SELECT "ingress_url" INTO :url
+        FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+        WHERE "name" = 'web';
+    EXCEPTION WHEN OTHER THEN
+        url := '';
+    END;
+
+    RETURN :url;
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.get_web_ui_url()
+    TO APPLICATION ROLE app_admin;
+GRANT USAGE ON PROCEDURE app_setup.get_web_ui_url()
+    TO APPLICATION ROLE app_user;
+
+-- ============================================================
+-- Service Logs
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE app_setup.service_logs(num_lines INTEGER DEFAULT 100)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+    log_result VARCHAR DEFAULT '';
+BEGIN
+    BEGIN
+        SELECT SYSTEM$GET_SERVICE_LOGS(
+            'app_services.postgres_learning_studio_service', 0,
+            'postgres-learning-studio', :num_lines
+        ) INTO :log_result;
+    EXCEPTION WHEN OTHER THEN
+        log_result := 'Error fetching logs: ' || SQLERRM;
+    END;
+
+    RETURN log_result;
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE app_setup.service_logs(INTEGER)
+    TO APPLICATION ROLE app_admin;

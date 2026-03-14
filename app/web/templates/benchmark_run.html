@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.run_id }} - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2>Run #{{ run.run_id }}
+            {% if run.run_name %}<small class="text-muted">{{ run.run_name }}</small>{% endif %}
+        </h2>
+        <span id="statusBadge" class="badge bg-primary progress-pulse">{{ run.status }}</span>
+        <small class="text-muted ms-2">Started: {{ run.started_at }}</small>
+    </div>
+    {% if run.status == 'running' %}
+    <form method="POST" action="/benchmark/cancel/{{ run.run_id }}">
+        <button type="submit" class="btn btn-outline-danger">Cancel</button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">TPS (Transactions Per Second)</div>
+            <div class="card-body chart-container">
+                <canvas id="tpsChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Latency (ms)</div>
+            <div class="card-body chart-container">
+                <canvas id="latencyChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary (shown on completion) -->
+<div id="summarySection" style="display: none;">
+    <div class="row mb-4 g-3">
+        <div class="col-md-3">
+            <div class="card metric-card metric-tps">
+                <div class="card-body text-center">
+                    <div class="metric-label">TPS</div>
+                    <div class="metric-value" id="summaryTps">-</div>
+                    <div class="metric-unit">transactions / sec</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card metric-latency">
+                <div class="card-body text-center">
+                    <div class="metric-label">Avg Latency</div>
+                    <div class="metric-value" id="summaryLatency">-</div>
+                    <div class="metric-unit">ms</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card metric-txns">
+                <div class="card-body text-center">
+                    <div class="metric-label">Transactions</div>
+                    <div class="metric-value" id="summaryTxns">-</div>
+                    <div class="metric-unit">total</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card metric-failed">
+                <div class="card-body text-center">
+                    <div class="metric-label">Failed</div>
+                    <div class="metric-value" id="summaryFailed">-</div>
+                    <div class="metric-unit">transactions</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="text-center mb-4">
+        <a id="detailLink" href="/results/{{ run.run_id }}" class="btn btn-primary btn-lg">
+            View Full Details
+        </a>
+    </div>
+</div>
+
+<!-- Progress Table -->
+<div class="card">
+    <div class="card-header">Progress Log</div>
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+            <table class="table table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>Elapsed (s)</th>
+                        <th>TPS</th>
+                        <th>Latency Avg (ms)</th>
+                        <th>Latency StdDev</th>
+                    </tr>
+                </thead>
+                <tbody id="progressTable">
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script src="{{ url_for('static', filename='js/benchmark.js') }}"></script>
+<script>
+    const runId = {{ run.run_id }};
+    const runStatus = "{{ run.status }}";
+    initBenchmarkProgress(runId, runStatus);
+</script>
+{% endblock %}

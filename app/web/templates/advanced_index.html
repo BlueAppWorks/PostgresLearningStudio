@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Advanced Extensions - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Advanced Extensions</h2>
+<p class="text-muted mb-4">
+    PostgreSQL のパワフルなエクステンションを体験できるインタラクティブなデモ環境です。<br>
+    各エクステンションのセットアップ方法、サンプル SQL、実際の動作を確認できます。
+</p>
+
+<div class="row g-4">
+    <!-- PostGIS -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">PostGIS</h5>
+                <span class="badge {{ 'bg-success' if extensions.get('postgis', {}).get('installed') else 'bg-secondary' }} mb-2">
+                    {{ extensions.get('postgis', {}).get('installed') or extensions.get('postgis', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text">
+                    PostgreSQL に<strong>地理空間データ</strong>の機能を追加するエクステンション。
+                    地図上の座標（ポイント・ライン・ポリゴン）を DB に格納し、距離計算や包含判定などの空間クエリを SQL で実行できます。
+                </p>
+                <ul class="small text-muted">
+                    <li>ポイント・ライン・ポリゴンの格納と描画</li>
+                    <li>距離計算・面積計算・包含判定</li>
+                    <li>GiST 空間インデックスによる高速検索</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    開発: <a href="https://postgis.net/" target="_blank">PostGIS Project</a> (OSGeo) /
+                    ライセンス: GPL v2
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://postgis.net/" target="_blank" class="text-muted small">postgis.net</a>
+                <a href="/advanced/postgis" class="btn btn-primary btn-sm">Demo</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- pg_hint_plan -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">pg_hint_plan</h5>
+                <span class="badge {{ 'bg-success' if extensions.get('pg_hint_plan', {}).get('installed') else 'bg-secondary' }} mb-2">
+                    {{ extensions.get('pg_hint_plan', {}).get('installed') or extensions.get('pg_hint_plan', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text">
+                    SQL コメントに<strong>ヒント</strong>を書くことで、PostgreSQL のクエリプランナーに実行計画を指示できるエクステンション。
+                    統計情報が古い場合や、プランナーが最適でない計画を選ぶ場合に有効です。
+                </p>
+                <ul class="small text-muted">
+                    <li>SeqScan / IndexScan の強制指定</li>
+                    <li>JOIN 方式の指定（NestLoop / HashJoin / MergeJoin）</li>
+                    <li>古い統計情報による非効率な計画の修正</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    開発: <a href="https://github.com/ossc-db" target="_blank">NTT OSS Center DBMS Development and Support Team</a> /
+                    ライセンス: PostgreSQL License
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://github.com/ossc-db/pg_hint_plan" target="_blank" class="text-muted small">GitHub (ossc-db/pg_hint_plan)</a>
+                <a href="/advanced/hint-plan" class="btn btn-primary btn-sm">Demo</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- pgvector -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">pgvector</h5>
+                <span class="badge {{ 'bg-success' if extensions.get('vector', {}).get('installed') else 'bg-secondary' }} mb-2">
+                    {{ extensions.get('vector', {}).get('installed') or extensions.get('vector', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text">
+                    PostgreSQL に<strong>ベクトル型</strong>とベクトル検索を追加するエクステンション。
+                    テキストを数値ベクトルに変換し、意味的に似た文書を検索する「セマンティック検索」を SQL で実現できます。AI/RAG の基盤技術です。
+                </p>
+                <ul class="small text-muted">
+                    <li>vector 型によるベクトル格納</li>
+                    <li>コサイン類似度・L2距離による検索</li>
+                    <li>HNSW / IVFFlat インデックスで高速近傍検索</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    開発: <a href="https://github.com/pgvector" target="_blank">Andrew Kane</a> /
+                    ライセンス: PostgreSQL License
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://github.com/pgvector/pgvector" target="_blank" class="text-muted small">GitHub (pgvector/pgvector)</a>
+                <a href="/advanced/pgvector" class="btn btn-primary btn-sm">Demo</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- pg_lake -->
+    <div class="col-md-6">
+        <div class="card h-100 border-secondary">
+            <div class="card-body">
+                <h5 class="card-title text-muted">pg_lake <span class="badge bg-warning text-dark">Coming Soon</span></h5>
+                <span class="badge bg-secondary mb-2">
+                    {{ extensions.get('pg_lake', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text text-muted">
+                    PostgreSQL に <strong>Apache Iceberg</strong> と<strong>データレイク</strong>アクセス機能を追加する Snowflake 製エクステンション。
+                    <code>CREATE TABLE ... USING iceberg</code> で Iceberg テーブルを作成し、S3 上の Parquet/CSV を直接クエリできます。
+                </p>
+                <ul class="small text-muted">
+                    <li>Iceberg テーブルの作成・DML</li>
+                    <li>S3/GCS 上の Parquet/CSV を Foreign Table で参照</li>
+                    <li>COPY TO/FROM によるデータレイク読み書き</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    開発: <a href="https://github.com/Snowflake-Labs" target="_blank">Snowflake Labs</a> /
+                    ライセンス: Apache License 2.0
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" class="text-muted small">GitHub (Snowflake-Labs/pg_lake)</a>
+                <a href="/advanced/pg-lake" class="btn btn-outline-secondary btn-sm">Info</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

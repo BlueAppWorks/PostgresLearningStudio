@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}pg_lake - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/advanced">Advanced</a></li>
+    <li class="breadcrumb-item active">pg_lake</li>
+</ol></nav>
+
+<h2>pg_lake <span class="badge bg-warning text-dark">Coming Soon</span></h2>
+<p class="text-muted">
+    PostgreSQL に Apache Iceberg とデータレイクアクセス機能を追加する Snowflake 製エクステンション。
+    <a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" rel="noopener">pg_lake</a> は
+    Snowflake Labs が開発するオープンソースプロジェクトです。
+</p>
+
+<div class="alert alert-warning">
+    <strong>現在利用不可:</strong>
+    pg_lake は <code>pg_extension_base</code> が <code>shared_preload_libraries</code> に登録されている必要がありますが、
+    現在の Snowflake Postgres 環境ではまだ設定されていません。Snowflake 側の対応待ちです。
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header"><h5 class="mb-0">概要</h5></div>
+            <div class="card-body">
+                <ul>
+                    <li><code>CREATE TABLE ... USING iceberg</code> で Iceberg テーブルを作成</li>
+                    <li>通常の INSERT / UPDATE / DELETE がそのまま動作</li>
+                    <li>S3 上の Parquet / CSV / JSON を Foreign Table で直接参照</li>
+                    <li><code>COPY TO/FROM 's3://...'</code> でデータレイク読み書き</li>
+                    <li>パーティショニング: <code>day()</code>, <code>month()</code>, <code>bucket()</code></li>
+                </ul>
+                <p class="mt-3">
+                    <a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" class="btn btn-outline-primary btn-sm">
+                        GitHub Repository
+                    </a>
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header"><h5 class="mb-0">SQL サンプル（将来利用可能）</h5></div>
+            <div class="card-body">
+<pre class="mb-0" style="color: var(--bs-body-color); font-size: 0.85rem;">
+-- Iceberg テーブル作成
+CREATE TABLE events (
+  event_time timestamptz,
+  user_id int,
+  data text
+) USING iceberg
+  WITH (partition_by = 'day(event_time)');
+
+-- 通常の DML
+INSERT INTO events VALUES (now(), 1, 'hello');
+
+-- S3 へエクスポート
+COPY events TO 's3://bucket/events.parquet';
+
+-- S3 の Parquet を外部テーブルとして参照
+CREATE FOREIGN TABLE ext_data ()
+  SERVER pg_lake
+  OPTIONS (path 's3://bucket/*.parquet');
+</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header"><h5 class="mb-0">エクステンション一覧</h5></div>
+    <div class="card-body">
+        <table class="table table-sm mb-0">
+            <thead><tr><th>Extension</th><th>Version</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><code>pg_lake</code></td><td>3.2</td><td>Data lake extension by Snowflake (メイン)</td></tr>
+                <tr><td><code>pg_lake_iceberg</code></td><td>3.2</td><td>Iceberg テーブル実装</td></tr>
+                <tr><td><code>pg_lake_table</code></td><td>3.2</td><td>Foreign Data Wrapper</td></tr>
+                <tr><td><code>pg_lake_copy</code></td><td>3.2</td><td>COPY 拡張（S3 対応）</td></tr>
+                <tr><td><code>pg_lake_engine</code></td><td>3.2</td><td>クエリエンジン</td></tr>
+                <tr><td><code>pg_lake_spatial</code></td><td>3.2</td><td>地理空間ファイル対応</td></tr>
+                <tr><td><code>pg_lake_benchmark</code></td><td>3.2</td><td>ベンチマーク</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

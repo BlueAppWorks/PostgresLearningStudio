@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+{% block title %}pgvector Demo - Postgres Learning Studio{% endblock %}
+
+{% block head %}
+<style>
+.sql-display { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px;
+               font-family: 'Consolas','Monaco',monospace; font-size: 0.85rem;
+               white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
+.result-box { background: var(--bs-tertiary-bg); padding: 12px; border-radius: 6px; font-size: 0.9rem; }
+.step-card { border-left: 3px solid var(--bs-info); }
+.keyword-badge { display: inline-block; padding: 2px 8px; margin: 2px;
+                 background: var(--bs-primary); color: white; border-radius: 12px; font-size: 0.75rem; }
+.similarity-bar { height: 20px; border-radius: 4px; transition: width 0.5s; }
+</style>
+{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/advanced">Advanced</a></li>
+    <li class="breadcrumb-item active">pgvector</li>
+</ol></nav>
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2>pgvector Demo</h2>
+        <p class="text-muted">
+            テキストをベクトルに変換し、意味的に似た文書を検索する「セマンティック検索」を体験します。
+            <a href="https://github.com/pgvector/pgvector" target="_blank" rel="noopener">pgvector</a> は
+            PostgreSQL にベクトル型とベクトル検索を追加する OSS エクステンションです。
+        </p>
+    </div>
+    <button class="btn btn-outline-success" id="btn-setup" onclick="showSetupSQL()">Setup</button>
+</div>
+
+<!-- Setup SQL Preview -->
+<div id="setup-panel" class="card mb-4 d-none border-success">
+    <div class="card-header d-flex justify-content-between align-items-center bg-success bg-opacity-10">
+        <h6 class="mb-0">Setup SQL</h6>
+        <div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="copySetupSQL()" id="btn-copy">Copy All</button>
+            <button class="btn btn-success btn-sm ms-2" onclick="executeSetup()" id="btn-execute">Execute</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <pre id="setup-sql-content" class="sql-display mb-0" style="max-height:400px;border:none;border-radius:0"></pre>
+    </div>
+</div>
+<div id="setup-result" class="mb-4 d-none"></div>
+
+<!-- How it works -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">仕組み</h5></div>
+    <div class="card-body">
+        <p>このデモでは、ビジネス関連のキーワード辞書を使った簡易ベクトル化を行います。<br>
+           <small class="text-muted">（本番環境では OpenAI Embeddings や Snowflake Cortex などの AI モデルでより高精度なベクトルを生成します）</small></p>
+        <p><strong>キーワード辞書（20次元ベクトル）:</strong></p>
+        <div class="mb-2">
+            <span class="keyword-badge">商談</span><span class="keyword-badge">契約</span>
+            <span class="keyword-badge">提案</span><span class="keyword-badge">見積</span>
+            <span class="keyword-badge">受注</span><span class="keyword-badge">失注</span>
+            <span class="keyword-badge">訪問</span><span class="keyword-badge">電話</span>
+            <span class="keyword-badge">メール</span><span class="keyword-badge">会議</span>
+            <span class="keyword-badge">新規</span><span class="keyword-badge">既存</span>
+            <span class="keyword-badge">競合</span><span class="keyword-badge">価格</span>
+            <span class="keyword-badge">納期</span><span class="keyword-badge">品質</span>
+            <span class="keyword-badge">サポート</span><span class="keyword-badge">導入</span>
+            <span class="keyword-badge">検討</span><span class="keyword-badge">決裁</span>
+        </div>
+        <p class="small text-muted">各キーワードの出現回数を数えてベクトル化し、L2正規化します。</p>
+    </div>
+</div>
+
+<!-- Step 1: View existing data -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 1: 既存の営業日報を確認</h5></div>
+    <div class="card-body">
+        <div class="sql-display">-- 営業日報の一覧（ベクトルは省略表示）
+SELECT id, diary_date, salesperson, company,
+       LEFT(content, 50) || '...' AS content_preview,
+       embedding IS NOT NULL AS has_vector
+FROM vector_demo.sales_diary ORDER BY id;</div>
+        <button class="btn btn-primary mt-3" onclick="runStep1()">Run</button>
+        <div id="result-step1" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Step 2: INSERT new entry -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 2: 新しい日報を INSERT</h5></div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <label class="form-label">営業担当</label>
+                <input type="text" class="form-control" id="input-person" value="山田次郎">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">会社名</label>
+                <input type="text" class="form-control" id="input-company" value="F社">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">日報内容</label>
+                <textarea class="form-control" id="input-content" rows="2">新規商談で訪問。提案資料を用いて導入メリットを説明。見積を来週提出予定。検討中。</textarea>
+            </div>
+        </div>
+        <div class="sql-display" id="sql-step2"></div>
+        <button class="btn btn-primary mt-3" onclick="runStep2()">Run INSERT</button>
+        <div id="result-step2" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Step 3: Vectorize -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 3: ベクトル化 (UPDATE)</h5></div>
+    <div class="card-body">
+        <p>INSERT した行のテキストをベクトルに変換します。<code>embedding IS NULL</code> の行のみが対象です。</p>
+        <div class="sql-display">-- 未ベクトル化の行をベクトル化
+UPDATE vector_demo.sales_diary
+SET embedding = vector_demo.text_to_vector(content)
+WHERE embedding IS NULL;
+
+-- ベクトル化結果を確認（最新の行）
+SELECT id, LEFT(content, 40) AS content_preview,
+       embedding::text AS vector
+FROM vector_demo.sales_diary
+ORDER BY id DESC LIMIT 1;</div>
+        <button class="btn btn-primary mt-3" onclick="runStep3()">Run Vectorize</button>
+        <div id="result-step3" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Step 4: Semantic search -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 4: セマンティック検索</h5></div>
+    <div class="card-body">
+        <p>自然言語で検索し、意味的に近い日報を見つけます。</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-8">
+                <label class="form-label">検索テキスト</label>
+                <input type="text" class="form-control" id="search-text"
+                       value="新規の商談で提案した案件" placeholder="自然言語で検索...">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">プリセット</label>
+                <select class="form-select" onchange="document.getElementById('search-text').value=this.value">
+                    <option value="新規の商談で提案した案件">新規商談・提案</option>
+                    <option value="既存顧客のサポート品質">既存顧客・サポート</option>
+                    <option value="契約と受注の確認">契約・受注</option>
+                    <option value="競合との価格比較">競合・価格</option>
+                    <option value="メールで検討状況を確認">メール・検討</option>
+                </select>
+            </div>
+        </div>
+        <div class="sql-display" id="sql-step4"></div>
+        <button class="btn btn-primary mt-3" onclick="runStep4()">Search</button>
+        <div id="result-step4" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const EXT = 'pgvector';
+let _setupSQL = '';
+
+async function execSQL(sql) {
+    const resp = await fetch('/sql/execute', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ sql })
+    });
+    return resp.json();
+}
+
+function resultTable(data) {
+    if (data.error) return `<span class="text-danger">${data.error}</span>`;
+    if (data.message) return `<span class="text-success">${data.message}</span>`;
+    if (!data.columns) return '';
+    let html = '<table class="table table-sm table-bordered mb-1"><thead><tr>';
+    data.columns.forEach(c => html += `<th>${c}</th>`);
+    html += '</tr></thead><tbody>';
+    (data.rows || []).forEach(r => {
+        html += '<tr>';
+        r.forEach(v => html += `<td>${v === null ? '<em>NULL</em>' : v}</td>`);
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    if (data.execution_time_ms) html += `<small class="text-muted">Execution: ${data.execution_time_ms}ms</small>`;
+    return html;
+}
+
+function showResult(id, html) {
+    const el = document.getElementById(id);
+    el.innerHTML = html; el.classList.remove('d-none');
+}
+
+function escapeSQL(s) { return s.replace(/'/g, "''"); }
+
+// ── Setup preview / copy / execute ──
+async function showSetupSQL() {
+    const resp = await fetch(`/advanced/setup-sql/${EXT}`);
+    const data = await resp.json();
+    let sql = '';
+    data.steps.forEach(s => { sql += `-- [${s.label}]\n${s.sql}\n\n`; });
+    _setupSQL = sql.trim();
+    document.getElementById('setup-sql-content').textContent = _setupSQL;
+    document.getElementById('setup-panel').classList.remove('d-none');
+}
+
+function copySetupSQL() {
+    navigator.clipboard.writeText(_setupSQL).then(() => {
+        const btn = document.getElementById('btn-copy');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy All', 2000);
+    });
+}
+
+async function executeSetup() {
+    const btn = document.getElementById('btn-execute');
+    btn.disabled = true; btn.textContent = 'Executing...';
+    try {
+        const resp = await fetch(`/advanced/setup/${EXT}`, { method: 'POST' });
+        const data = await resp.json();
+        let html = '<div class="alert alert-info"><strong>Results:</strong><ul class="mb-0">';
+        data.results.forEach(r => {
+            const ok = r.status === 'ok';
+            html += `<li class="${ok ? 'text-success' : 'text-danger'}">${ok ? '&#10003;' : '&#10007;'} ${r.label} (${r.time_ms}ms)`;
+            if (r.error) html += ` &mdash; <small>${r.error}</small>`;
+            html += '</li>';
+        });
+        html += '</ul></div>';
+        showResult('setup-result', html);
+    } catch (e) {
+        showResult('setup-result', `<div class="alert alert-danger">${e}</div>`);
+    }
+    btn.disabled = false; btn.textContent = 'Execute';
+}
+
+// Step 1
+async function runStep1() {
+    const data = await execSQL(`SELECT id, diary_date, salesperson, company,
+       LEFT(content, 50) || '...' AS content_preview,
+       embedding IS NOT NULL AS has_vector
+FROM vector_demo.sales_diary ORDER BY id`);
+    showResult('result-step1', resultTable(data));
+}
+
+// Step 2
+function updateStep2SQL() {
+    const person = escapeSQL(document.getElementById('input-person').value);
+    const company = escapeSQL(document.getElementById('input-company').value);
+    const content = escapeSQL(document.getElementById('input-content').value);
+    document.getElementById('sql-step2').textContent =
+`INSERT INTO vector_demo.sales_diary (salesperson, company, content)
+VALUES ('${person}', '${company}', '${content}');`;
+}
+document.getElementById('input-person').addEventListener('input', updateStep2SQL);
+document.getElementById('input-company').addEventListener('input', updateStep2SQL);
+document.getElementById('input-content').addEventListener('input', updateStep2SQL);
+updateStep2SQL();
+
+async function runStep2() {
+    const person = escapeSQL(document.getElementById('input-person').value);
+    const company = escapeSQL(document.getElementById('input-company').value);
+    const content = escapeSQL(document.getElementById('input-content').value);
+    const sql = `INSERT INTO vector_demo.sales_diary (salesperson, company, content)
+VALUES ('${person}', '${company}', '${content}')`;
+    const data = await execSQL(sql);
+    showResult('result-step2', resultTable(data));
+}
+
+// Step 3
+async function runStep3() {
+    const update = await execSQL(`UPDATE vector_demo.sales_diary
+SET embedding = vector_demo.text_to_vector(content)
+WHERE embedding IS NULL`);
+
+    // Show update count prominently
+    let html = '';
+    const cnt = update.row_count || 0;
+    if (cnt > 0) {
+        html += `<span class="badge bg-success fs-6">${cnt} row(s) vectorized</span><br><br>`;
+    } else {
+        html += `<span class="badge bg-secondary fs-6">No rows to vectorize (all already have vectors)</span><br><br>`;
+    }
+
+    // Show the most recently vectorized row
+    const check = await execSQL(`SELECT id, LEFT(content, 40) AS content_preview,
+       embedding::text AS vector
+FROM vector_demo.sales_diary
+ORDER BY id DESC LIMIT 1`);
+    html += '<strong>Latest entry:</strong><br>' + resultTable(check);
+    showResult('result-step3', html);
+}
+
+// Step 4
+function updateStep4SQL() {
+    const text = escapeSQL(document.getElementById('search-text').value);
+    document.getElementById('sql-step4').textContent =
+`-- 検索テキストをベクトル化し、コサイン類似度で近い日報を検索
+SELECT id, diary_date, salesperson, company,
+       LEFT(content, 60) AS content_preview,
+       1 - (embedding <=> vector_demo.text_to_vector('${text}')) AS similarity
+FROM vector_demo.sales_diary
+WHERE embedding IS NOT NULL
+ORDER BY embedding <=> vector_demo.text_to_vector('${text}')
+LIMIT 5;`;
+}
+document.getElementById('search-text').addEventListener('input', updateStep4SQL);
+updateStep4SQL();
+
+async function runStep4() {
+    const text = escapeSQL(document.getElementById('search-text').value);
+    const sql = `SELECT id, diary_date, salesperson, company,
+       LEFT(content, 60) AS content_preview,
+       ROUND((1 - (embedding <=> vector_demo.text_to_vector('${text}')))::numeric, 4) AS similarity
+FROM vector_demo.sales_diary
+WHERE embedding IS NOT NULL
+ORDER BY embedding <=> vector_demo.text_to_vector('${text}')
+LIMIT 5`;
+    const data = await execSQL(sql);
+
+    let html = '<strong>検索結果（コサイン類似度順）:</strong><br>';
+    if (data.rows && data.rows.length > 0) {
+        html += '<div class="mt-2">';
+        data.rows.forEach((r, i) => {
+            const sim = parseFloat(r[5]) || 0;
+            const pct = Math.max(0, Math.min(100, sim * 100));
+            const color = sim > 0.5 ? '#28a745' : sim > 0.2 ? '#ffc107' : '#6c757d';
+            html += `<div class="mb-2 p-2 rounded" style="background: var(--bs-tertiary-bg)">
+                <div class="d-flex justify-content-between">
+                    <span><strong>#${r[0]}</strong> ${r[2]} / ${r[3]} (${r[1]})</span>
+                    <span class="badge" style="background:${color}">${(sim * 100).toFixed(1)}%</span>
+                </div>
+                <div class="small">${r[4]}</div>
+                <div class="progress mt-1" style="height:6px">
+                    <div class="similarity-bar" style="width:${pct}%;background:${color}"></div>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+    }
+    html += '<br>' + resultTable(data);
+    showResult('result-step4', html);
+}
+</script>
+{% endblock %}

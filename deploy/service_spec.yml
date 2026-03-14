@@ -1,0 +1,27 @@
+spec:
+  containers:
+  - name: postgres-learning-studio
+    image: /POSTGRES_LEARNING_STUDIO_DB/APP_SCHEMA/POSTGRES_LEARNING_STUDIO_REPO/postgres-learning-studio:latest
+    secrets:
+    - snowflakeSecret: app_config.postgres_secret
+      secretKeyRef: username
+      envVarName: PGUSER
+    - snowflakeSecret: app_config.postgres_secret
+      secretKeyRef: password
+      envVarName: PGPASSWORD
+    env:
+      PGHOST: {{PGHOST}}
+      PGPORT: "5432"
+      PGDATABASE: "benchmark"
+      SPCS_COMPUTE_POOL: {{COMPUTE_POOL}}
+    resources:
+      requests:
+        cpu: "{{CPU_REQUEST}}"
+        memory: "{{MEMORY_REQUEST}}"
+      limits:
+        cpu: "{{CPU_LIMIT}}"
+        memory: "{{MEMORY_LIMIT}}"
+  endpoints:
+  - name: web
+    port: 8080
+    public: true

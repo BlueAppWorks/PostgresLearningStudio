@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Connections - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Connection Targets</h2>
+
+<div class="alert alert-info">
+    <strong>Primary target</strong> (marked with <span class="badge bg-primary">Primary</span>)
+    is the metrics/results storage database, automatically registered from the SPCS service configuration.
+    It is also available as a benchmark and learning target.
+    <br>
+    Additional targets can be added below for running benchmarks or learning queries against different PostgreSQL instances.
+</div>
+
+<!-- Existing Targets -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Registered Targets</h5></div>
+    <div class="card-body p-0">
+        {% if targets %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Host</th>
+                        <th>Port</th>
+                        <th>Database</th>
+                        <th>User</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in targets %}
+                    <tr>
+                        <td>
+                            {{ t.name }}
+                            {% if t.is_primary %}
+                            <span class="badge bg-primary ms-1">Primary</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ t.host }}</td>
+                        <td>{{ t.port }}</td>
+                        <td>{{ t.dbname }}</td>
+                        <td>{{ t.username }}</td>
+                        <td class="text-end">
+                            <form method="POST" action="/targets/{{ t.target_id }}/test" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-outline-info">Test</button>
+                            </form>
+                            {% if not t.is_primary %}
+                            <form method="POST" action="/targets/{{ t.target_id }}/delete" class="d-inline ms-1"
+                                  onsubmit="return confirm('Delete target \'{{ t.name }}\'?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="p-3 text-muted mb-0">No targets registered.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add New Target -->
+<div class="card">
+    <div class="card-header"><h5 class="mb-0">Add Target</h5></div>
+    <div class="card-body">
+        <form method="POST" action="/targets/add">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="name" class="form-label">Name</label>
+                    <input type="text" class="form-control" id="name" name="name" required
+                           placeholder="e.g. prod-replica">
+                </div>
+                <div class="col-md-4">
+                    <label for="host" class="form-label">Host</label>
+                    <input type="text" class="form-control" id="host" name="host" required
+                           placeholder="e.g. my-pg.example.com">
+                </div>
+                <div class="col-md-2">
+                    <label for="port" class="form-label">Port</label>
+                    <input type="number" class="form-control" id="port" name="port" value="5432">
+                </div>
+                <div class="col-md-2">
+                    <label for="dbname" class="form-label">Database</label>
+                    <input type="text" class="form-control" id="dbname" name="dbname" value="postgres">
+                </div>
+            </div>
+            <div class="row g-3 mt-1">
+                <div class="col-md-4">
+                    <label for="username" class="form-label">Username</label>
+                    <input type="text" class="form-control" id="username" name="username" required>
+                </div>
+                <div class="col-md-4">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" name="password" required>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary">Add Target</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

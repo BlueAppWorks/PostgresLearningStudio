@@ -1,2 +1,2 @@
 # PostgresLearningStudio
-Postgres Learning Studio App for Snowflake Marketplace
+Postgres Learning Studio for Snowflake Native App

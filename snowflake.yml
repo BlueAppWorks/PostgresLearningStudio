@@ -1,0 +1,19 @@
+definition_version: 2
+entities:
+  postgres_learning_studio_pkg:
+    type: application package
+    manifest: deploy/manifest.yml
+    artifacts:
+      - src: deploy/*
+        dest: ./
+    meta:
+      role: ACCOUNTADMIN
+      warehouse: MY_WH
+  postgres_learning_studio:
+    type: application
+    from:
+      target: postgres_learning_studio_pkg
+    debug: false
+    meta:
+      role: ACCOUNTADMIN
+      warehouse: MY_WH

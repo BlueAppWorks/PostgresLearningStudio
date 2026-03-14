@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}System Info - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">System Information</h2>
+
+<div class="card mb-4">
+    <div class="card-header">PostgreSQL Version</div>
+    <div class="card-body">
+        <code>{{ pg_version or 'Unable to detect' }}</code>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Performance-Related Settings</div>
+    <div class="card-body p-0">
+        {% if settings %}
+        <div class="table-responsive">
+            <table class="table table-hover pg-settings-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Value</th>
+                        <th>Raw</th>
+                        <th>Unit</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, info in settings %}
+                    <tr>
+                        <td>{{ name }}</td>
+                        <td><strong>{{ info.display }}</strong></td>
+                        <td>{{ info.setting }}</td>
+                        <td>{{ info.unit }}</td>
+                        <td><small class="text-muted">{{ info.description }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="p-3 text-muted mb-0">Could not retrieve PostgreSQL settings.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
