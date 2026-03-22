@@ -20,9 +20,21 @@
 - **Snowflake Internal Stage: ✗ 未対応**
 
 ### Postgres → Iceberg → Snowflake のデータフロー
+
+**2つの連携パス:**
+
+**Path A — Direct S3 access (External Iceberg Tables):**
 1. pg_lake で `CREATE TABLE ... USING iceberg` → S3 に Parquet + Iceberg metadata を書き出し
-2. Snowflake 側で同じ S3 パスの Iceberg テーブルを外部管理テーブルとして READ
+2. Snowflake 側で External Volume + Catalog Integration を作成し、同じ S3 の Iceberg テーブルを READ
 3. ETL パイプライン不要の "Zero ETL" アプローチ
+4. 公式ガイド: [Build a Lakehouse with Snowflake Postgres and pg_lake](https://www.snowflake.com/en/developers/guides/build-a-lakehouse-with-snowflake-postgres-and-pg-lake/)
+
+**Path B — REST Catalog (Polaris / Open Catalog):**
+- 実験的サポート（Issue #94）
+- 読み取りパスは「ほぼ完成」、書き込みパスも任意トランザクション・DDL・パーティションをサポート
+- **制約:** シングルライターモデル前提（Postgres のみが書き込み側）
+- Credential vending は未実装
+- 現時点では Path A の Direct S3 方式を推奨
 
 ### pg_partman 連携
 **Snowflake 公式ブログで推奨パターンとして紹介済み:**
@@ -270,3 +282,66 @@ Snowflake 公式エンジニアリングブログ記事:
 `pg_incremental` は pg_cron ベースの差分処理フレームワーク。
 Demo 4 では簡略化して手動アーカイブとするが、
 pg_incremental の存在と自動化の可能性を情報パネルで言及する。
+
+---
+
+### 補足: Snowflake 側の Iceberg テーブル読み取り設定
+
+Snowflake 公式ガイドに基づく設定手順:
+
+```sql
+-- 1. External Volume の作成（S3 バケットへのアクセス）
+CREATE OR REPLACE EXTERNAL VOLUME pg_lake_vol
+    STORAGE_LOCATIONS = (
+        (
+            NAME = 'pg_lake_s3'
+            STORAGE_BASE_URL = 's3://your-bucket/pg_lake/'
+            STORAGE_PROVIDER = 'S3'
+            STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::123456789012:role/pg-lake-access'
+        )
+    );
+
+-- 2. Catalog Integration の作成
+CREATE OR REPLACE CATALOG INTEGRATION pg_lake_catalog
+    CATALOG_SOURCE = OBJECT_STORE
+    TABLE_FORMAT = ICEBERG
+    ENABLED = TRUE;
+
+-- 3. Iceberg テーブルの登録（Postgres 側で作成済みのテーブルを参照）
+CREATE OR REPLACE ICEBERG TABLE analytics.metrics_from_pg
+    EXTERNAL_VOLUME = 'pg_lake_vol'
+    CATALOG = 'pg_lake_catalog'
+    METADATA_FILE_PATH = 'lake_demo/metrics_archive/metadata/v1.metadata.json';
+
+-- 4. クエリ
+SELECT date_trunc('day', ts) AS day, avg(cpu) AS avg_cpu
+FROM analytics.metrics_from_pg
+GROUP BY 1 ORDER BY 1;
+
+-- メタデータの更新（Postgres 側で新しいデータを書き込んだ後）
+ALTER ICEBERG TABLE analytics.metrics_from_pg REFRESH;
+```
+
+### 補足: プロジェクト沿革
+
+| 時期 | イベント |
+|------|---------|
+| 2024年初 | Crunchy Data で開発開始 |
+| 2024年中 | Crunchy Bridge for Analytics としてリリース |
+| 2025年6月 | Snowflake が Crunchy Data を買収（$250M） |
+| 2025年11月 | pg_lake v3.0 として OSS 化（Snowflake BUILD 2025） |
+| 2026年2月 | Snowflake BUILD London で Snowflake Postgres 拡張を発表、GA タイムライン提示 |
+
+### 補足: 参考リンク集
+
+- [pg_lake GitHub](https://github.com/Snowflake-Labs/pg_lake)
+- [Iceberg Tables ドキュメント](https://github.com/Snowflake-Labs/pg_lake/blob/main/docs/iceberg-tables.md)
+- [Data Lake Import/Export ドキュメント](https://github.com/Snowflake-Labs/pg_lake/blob/main/docs/data-lake-import-export.md)
+- [Foreign Table ドキュメント](https://github.com/Snowflake-Labs/pg_lake/blob/main/docs/query-data-lake-files.md)
+- [Snowflake 公式: pg_lake 設定](https://docs.snowflake.com/en/user-guide/snowflake-postgres/postgres-pg_lake)
+- [Snowflake ブログ: pg_lake 紹介](https://www.snowflake.com/en/engineering-blog/pg-lake-postgres-lakehouse-integration/)
+- [Snowflake ブログ: 時系列スタック](https://www.snowflake.com/en/engineering-blog/postgres-time-series-iceberg/)
+- [Snowflake ガイド: Lakehouse 構築](https://www.snowflake.com/en/developers/guides/build-a-lakehouse-with-snowflake-postgres-and-pg-lake/)
+- [Snowflake ガイド: IoT パイプライン](https://www.snowflake.com/en/developers/guides/snowflake-postgres-pg-lake-iot/)
+- [REST Catalog ロードマップ - Issue #94](https://github.com/Snowflake-Labs/pg_lake/issues/94)
+- [GCS バグ - Issue #169](https://github.com/Snowflake-Labs/pg_lake/issues/169)
