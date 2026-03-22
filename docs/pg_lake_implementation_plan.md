@@ -53,10 +53,18 @@
 - INSERT は heap パーティションにのみルーティングされる（Cold への書き込みは意図通り発生しない）
 - 制約: 親テーブルに UNIQUE INDEX は不可（IoT 時系列データでは問題なし）
 
-### 現在の制約（Snowflake Postgres 環境）
-- `pg_extension_base` が `shared_preload_libraries` に必要 → 現在 SF Postgres 未設定
-- `pgduck_server` プロセスが必要（ポート5332）→ SF Postgres で起動可能か要確認
+### Snowflake Postgres での有効化
+Snowflake Postgres はマネージドサービスのため、`shared_preload_libraries` や `pg_extension_base` の
+手動設定は**不要**。以下のみで有効化できる:
+```sql
+CREATE EXTENSION pg_lake CASCADE;
+```
+前提条件は S3 ストレージ統合の設定（IAM ロール + Storage Integration + ALTER POSTGRES INSTANCE）。
+詳細: https://docs.snowflake.com/en/user-guide/snowflake-postgres/postgres-pg_lake
+
+### 現在の制約
 - マルチライター非対応（Snowflake側からの書き込みは不可、Issue #41）
+- S3 バケットは Snowflake アカウントと同じ AWS リージョンに必要
 
 ---
 
@@ -454,9 +462,9 @@ S3 バケット設定が必要なため、pg_lake デモ用の設定パネルを
 
 | 項目 | 状況 | 対策 |
 |------|------|------|
-| `shared_preload_libraries` に `pg_extension_base` 必要 | SF Postgres 未設定 | Setup で自動チェック、未設定時は SQL プレビューのみモード |
-| `pgduck_server` プロセス必要 | SF Postgres での挙動未確認 | ヘルスチェックエンドポイントで検出 |
-| S3 バケット必要 | ユーザー設定依存 | 設定パネル追加、MinIO ローカルもサポート |
+| pg_lake インストール | `CREATE EXTENSION pg_lake CASCADE` で有効化 | Setup ボタンで自動実行 |
+| S3 Storage Integration | ユーザー設定依存（IAM ロール + S3 バケット） | ドキュメントで手順案内 |
+| S3 バケット必要 | Snowflake と同リージョンのみ | 設定パネル追加、MinIO ローカルもサポート |
 | Snowflake Internal Stage 非対応 | pg_lake 側で未実装 | S3 経由のワークフローを案内 |
 | pg_partman 必要（Demo 4） | SF Postgres で利用可能か要確認 | CREATE EXTENSION で検出、不可時はスキップ |
 

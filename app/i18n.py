@@ -86,7 +86,7 @@ TRANSLATIONS = {
         "en": 'Developer: <a href="https://github.com/pgvector" target="_blank">Andrew Kane</a> / License: PostgreSQL License',
         "ja": '開発: <a href="https://github.com/pgvector" target="_blank">Andrew Kane</a> / ライセンス: PostgreSQL License',
     },
-    "adv.lake.title_badge": {"en": "Coming Soon", "ja": "Coming Soon"},
+    "adv.lake.title_badge": {"en": "", "ja": ""},
     "adv.lake.desc": {
         "en": "A Snowflake-developed extension that adds <strong>Apache Iceberg</strong> and <strong>data lake</strong> access to PostgreSQL. Create Iceberg tables with <code>CREATE TABLE ... USING iceberg</code> and query Parquet/CSV on S3 directly.",
         "ja": "PostgreSQL に <strong>Apache Iceberg</strong> と<strong>データレイク</strong>アクセス機能を追加する Snowflake 製エクステンション。<code>CREATE TABLE ... USING iceberg</code> で Iceberg テーブルを作成し、S3 上の Parquet/CSV を直接クエリできます。",
@@ -328,8 +328,8 @@ TRANSLATIONS = {
         "ja": 'PostgreSQL に Apache Iceberg とデータレイクアクセス機能を追加する Snowflake 製エクステンション。<a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" rel="noopener">pg_lake</a> は Snowflake Labs が開発するオープンソースプロジェクトです。',
     },
     "lake.unavailable": {
-        "en": '<strong>Currently unavailable:</strong> pg_lake requires <code>pg_extension_base</code> in <code>shared_preload_libraries</code>, which is not yet configured in the current Snowflake Postgres environment. Waiting for Snowflake support.',
-        "ja": '<strong>現在利用不可:</strong> pg_lake は <code>pg_extension_base</code> が <code>shared_preload_libraries</code> に登録されている必要がありますが、現在の Snowflake Postgres 環境ではまだ設定されていません。Snowflake 側の対応待ちです。',
+        "en": '<strong>pg_lake not found:</strong> pg_lake is not available in <code>pg_available_extensions</code> on this server. On Snowflake Postgres, install with <code>CREATE EXTENSION pg_lake CASCADE</code>. S3 storage integration must be configured first.',
+        "ja": '<strong>pg_lake が見つかりません:</strong> このサーバーの <code>pg_available_extensions</code> に pg_lake がありません。Snowflake Postgres では <code>CREATE EXTENSION pg_lake CASCADE</code> でインストールします。事前に S3 ストレージ統合の設定が必要です。',
     },
     "lake.status_ready": {
         "en": "pg_lake is installed and ready.",

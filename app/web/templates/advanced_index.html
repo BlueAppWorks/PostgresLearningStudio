@@ -91,16 +91,16 @@
 
     <!-- pg_lake -->
     <div class="col-md-6">
-        <div class="card h-100 border-secondary">
+        <div class="card h-100">
             <div class="card-body">
-                <h5 class="card-title text-muted">pg_lake <span class="badge bg-warning text-dark">{{ t('adv.lake.title_badge') }}</span></h5>
+                <h5 class="card-title">pg_lake {% if t('adv.lake.title_badge') %}<span class="badge bg-warning text-dark">{{ t('adv.lake.title_badge') }}</span>{% endif %}</h5>
                 <span class="badge bg-secondary mb-2">
                     {{ extensions.get('pg_lake', {}).get('available', 'N/A') }}
                 </span>
-                <p class="card-text text-muted">
+                <p class="card-text">
                     {{ t('adv.lake.desc') }}
                 </p>
-                <ul class="small text-muted">
+                <ul class="small">
                     <li>{{ t('adv.lake.feat1') }}</li>
                     <li>{{ t('adv.lake.feat2') }}</li>
                     <li>{{ t('adv.lake.feat3') }}</li>
@@ -111,7 +111,7 @@
             </div>
             <div class="card-footer d-flex justify-content-between align-items-center">
                 <a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" class="text-muted small">GitHub (Snowflake-Labs/pg_lake)</a>
-                <a href="/advanced/pg-lake" class="btn btn-outline-secondary btn-sm">Info</a>
+                <a href="/advanced/pg-lake" class="btn btn-primary btn-sm">Demo</a>
             </div>
         </div>
     </div>
