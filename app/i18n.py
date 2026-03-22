@@ -1,6 +1,7 @@
 """Internationalization support for Postgres Learning Studio."""
 
 from flask import request
+from markupsafe import Markup
 
 TRANSLATIONS = {
     # ── Navbar / Layout ──
@@ -355,10 +356,13 @@ def get_lang() -> str:
     return request.cookies.get("lang", "en")
 
 
-def t(key: str) -> str:
-    """Translate a key to the current language."""
+def t(key: str) -> Markup:
+    """Translate a key to the current language.
+
+    Returns Markup so HTML in translations is rendered, not escaped.
+    """
     lang = get_lang()
     entry = TRANSLATIONS.get(key)
     if entry is None:
-        return key
-    return entry.get(lang, entry.get("en", key))
+        return Markup(key)
+    return Markup(entry.get(lang, entry.get("en", key)))
