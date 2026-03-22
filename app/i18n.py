@@ -451,6 +451,65 @@ TRANSLATIONS = {
         "ja": "インタラクティブデモ: Iceberg テーブル、COPY TO/FROM S3、Foreign Table、IoT Hot/Cold パーティションライフサイクル。",
     },
 
+    # ── Partitioning Primer ──
+    "lake.partition.title": {
+        "en": "PostgreSQL Partitioning Primer",
+        "ja": "PostgreSQL パーティショニングの基礎",
+    },
+    "lake.partition.intro": {
+        "en": "PostgreSQL natively supports <strong>declarative partitioning</strong> (PG10+). Large tables are split into smaller physical partitions, enabling the planner to skip irrelevant partitions entirely (<strong>partition pruning</strong>). This is the foundation for the Hot/Cold architecture in Demo 4.",
+        "ja": "PostgreSQL は <strong>宣言的パーティショニング</strong>（PG10+）をネイティブサポートしています。大きなテーブルを小さな物理パーティションに分割し、プランナーが不要なパーティションを完全にスキップ（<strong>パーティションプルーニング</strong>）できます。これが Demo 4 の Hot/Cold アーキテクチャの基盤です。",
+    },
+    "lake.partition.types_title": {
+        "en": "Partition Types",
+        "ja": "パーティションの種類",
+    },
+    "lake.partition.type": {"en": "Type", "ja": "種類"},
+    "lake.partition.syntax": {"en": "Syntax", "ja": "構文"},
+    "lake.partition.use_case": {"en": "Use Case", "ja": "ユースケース"},
+    "lake.partition.range_use": {
+        "en": "Time-series, date ranges, numeric ranges (most common for IoT/logs)",
+        "ja": "時系列、日付範囲、数値範囲（IoT/ログで最も一般的）",
+    },
+    "lake.partition.list_use": {
+        "en": "Categorical values: region, status, tenant ID",
+        "ja": "カテゴリ値: リージョン、ステータス、テナント ID",
+    },
+    "lake.partition.hash_use": {
+        "en": "Even distribution when no natural range/list key exists",
+        "ja": "自然なレンジ/リストキーがない場合の均等分散",
+    },
+    "lake.partition.pruning_title": {
+        "en": "Partition Pruning",
+        "ja": "パーティションプルーニング",
+    },
+    "lake.partition.pruning_desc": {
+        "en": "When a query includes a WHERE clause on the partition key, PostgreSQL automatically excludes partitions that cannot contain matching rows. This happens at <strong>plan time</strong> (static pruning) or <strong>execution time</strong> (dynamic pruning), dramatically reducing I/O for large tables.",
+        "ja": "クエリにパーティションキーの WHERE 句が含まれる場合、PostgreSQL は該当行を含み得ないパーティションを自動的に除外します。これは<strong>プラン時</strong>（静的プルーニング）または<strong>実行時</strong>（動的プルーニング）に行われ、大規模テーブルの I/O を劇的に削減します。",
+    },
+    "lake.partition.tools_title": {
+        "en": "Key Extensions for Partition Management",
+        "ja": "パーティション管理の主要エクステンション",
+    },
+    "lake.partition.tool": {"en": "Extension", "ja": "エクステンション"},
+    "lake.partition.role": {"en": "Role", "ja": "役割"},
+    "lake.partition.partman_desc": {
+        "en": "Automates partition creation, pre-creation (premake), and retention. Manages daily/monthly/yearly partitions without manual DDL.",
+        "ja": "パーティションの自動作成、事前作成（premake）、保持期間管理を自動化。日次/月次/年次パーティションを手動DDLなしで管理。",
+    },
+    "lake.partition.incremental_desc": {
+        "en": "Continuous incremental data sync (pg_cron-based). Tracks processed ranges and appends only new data to the target — exactly-once semantics.",
+        "ja": "継続的な差分データ同期（pg_cron ベース）。処理済み範囲を追跡し、ターゲットに新しいデータのみを追記 — exactly-once セマンティクス。",
+    },
+    "lake.partition.pglake_desc": {
+        "en": "Provides Iceberg tables (S3-backed) and Foreign Tables (S3 read). Cold partitions can be FDW-attached to the parent table for transparent access.",
+        "ja": "Iceberg テーブル（S3 バック）と Foreign Table（S3 読み取り）を提供。Cold パーティションを親テーブルに FDW アタッチして透過的にアクセス可能。",
+    },
+    "lake.partition.fdw_note": {
+        "en": "<strong>Why FDW partitions?</strong> PostgreSQL supports Foreign Tables as partition children (PG11+). Unlike UNION ALL views, FDW partitions benefit from <strong>guaranteed partition pruning</strong>, transparent INSERT routing to heap partitions, and native pg_partman integration.",
+        "ja": "<strong>なぜ FDW パーティション？</strong> PostgreSQL は Foreign Table をパーティション子テーブルとしてサポート（PG11+）。UNION ALL ビューと異なり、FDW パーティションは<strong>確実なパーティションプルーニング</strong>、heap パーティションへの透過的な INSERT ルーティング、pg_partman とのネイティブ統合が利点です。",
+    },
+
     "lake.status_ready": {
         "en": "pg_lake is installed and ready.",
         "ja": "pg_lake はインストール済みで利用可能です。",

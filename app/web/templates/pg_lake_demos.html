@@ -86,6 +86,67 @@ SELECT path FROM lake_file.list('s3://your-bucket/demo/**/*.parquet');</code></p
     </div>
 </div>
 
+<!-- ── Partitioning Primer ── -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('lake.partition.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('lake.partition.intro') }}</p>
+
+        <h6>{{ t('lake.partition.types_title') }}</h6>
+        <table class="table table-sm table-hover">
+            <thead><tr><th>{{ t('lake.partition.type') }}</th><th>{{ t('lake.partition.syntax') }}</th><th>{{ t('lake.partition.use_case') }}</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td><strong>RANGE</strong></td>
+                    <td><code>PARTITION BY RANGE (ts)</code></td>
+                    <td>{{ t('lake.partition.range_use') }}</td>
+                </tr>
+                <tr>
+                    <td><strong>LIST</strong></td>
+                    <td><code>PARTITION BY LIST (region)</code></td>
+                    <td>{{ t('lake.partition.list_use') }}</td>
+                </tr>
+                <tr>
+                    <td><strong>HASH</strong></td>
+                    <td><code>PARTITION BY HASH (user_id)</code></td>
+                    <td>{{ t('lake.partition.hash_use') }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h6>{{ t('lake.partition.pruning_title') }}</h6>
+        <p>{{ t('lake.partition.pruning_desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>-- Only scans the partition(s) matching the WHERE clause
+SELECT * FROM sensor_data WHERE ts >= '2026-03-20';
+
+-- EXPLAIN shows: "Subplans Removed: N" = pruned partitions
+EXPLAIN SELECT * FROM sensor_data WHERE ts >= '2026-03-20';</code></pre>
+
+        <h6>{{ t('lake.partition.tools_title') }}</h6>
+        <table class="table table-sm table-hover">
+            <thead><tr><th>{{ t('lake.partition.tool') }}</th><th>{{ t('lake.partition.role') }}</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td><code>pg_partman</code></td>
+                    <td>{{ t('lake.partition.partman_desc') }}</td>
+                </tr>
+                <tr>
+                    <td><code>pg_incremental</code></td>
+                    <td>{{ t('lake.partition.incremental_desc') }}</td>
+                </tr>
+                <tr>
+                    <td><code>pg_lake</code></td>
+                    <td>{{ t('lake.partition.pglake_desc') }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="alert alert-info mb-0">
+            {{ t('lake.partition.fdw_note') }}
+        </div>
+    </div>
+</div>
+
 <!-- ── Demo 4: Hot/Cold Partition Lifecycle ── -->
 <div class="card mb-4">
     <div class="card-header"><h5 class="mb-0">{{ t('lake.demo4.title') }}</h5></div>
