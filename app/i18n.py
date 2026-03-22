@@ -4,20 +4,20 @@ from flask import request
 from markupsafe import Markup
 
 TRANSLATIONS = {
-    # ── Navbar / Layout ──
+    # ── Navbar / Layout (English only — menus do not switch) ──
     "nav.home": {"en": "Home", "ja": "Home"},
     "nav.benchmark": {"en": "Benchmark", "ja": "Benchmark"},
-    "nav.new_run": {"en": "New Run", "ja": "新規実行"},
-    "nav.results": {"en": "Results", "ja": "結果一覧"},
-    "nav.compare": {"en": "Compare", "ja": "比較"},
+    "nav.new_run": {"en": "New Run", "ja": "New Run"},
+    "nav.results": {"en": "Results", "ja": "Results"},
+    "nav.compare": {"en": "Compare", "ja": "Compare"},
     "nav.playground": {"en": "Playground", "ja": "Playground"},
     "nav.sql_client": {"en": "SQL Client", "ja": "SQL Client"},
-    "nav.scripts": {"en": "Scripts & Scenarios", "ja": "スクリプト & シナリオ"},
+    "nav.scripts": {"en": "Scripts & Scenarios", "ja": "Scripts & Scenarios"},
     "nav.advanced": {"en": "Advanced", "ja": "Advanced"},
-    "nav.overview": {"en": "Overview", "ja": "概要"},
+    "nav.overview": {"en": "Overview", "ja": "Overview"},
     "nav.settings": {"en": "Settings", "ja": "Settings"},
-    "nav.connections": {"en": "Connections", "ja": "接続先"},
-    "nav.system_info": {"en": "System Info", "ja": "システム情報"},
+    "nav.connections": {"en": "Connections", "ja": "Connections"},
+    "nav.system_info": {"en": "System Info", "ja": "System Info"},
     "footer": {"en": "Postgres Learning Studio &mdash; Running on SPCS", "ja": "Postgres Learning Studio &mdash; Running on SPCS"},
 
     # ── Advanced Index ──
