@@ -23,8 +23,7 @@
     <!-- ── SQL Samples Tab ── -->
     <div class="tab-pane fade show active" id="sqlTab" role="tabpanel">
         <div class="alert alert-info">
-            SQL Client の <strong>Samples</strong> ドロップダウンにユーザー登録スクリプトが追加されます。
-            PostgreSQL学習や業務固有のクエリをサンプルとして登録できます。
+            {{ t('scripts.sql_info') }}
         </div>
 
         {% if sql_samples %}
@@ -111,11 +110,7 @@
     <!-- ── Benchmark Scenarios Tab ── -->
     <div class="tab-pane fade" id="scenarioTab" role="tabpanel">
         <div class="alert alert-info">
-            ベンチマーク用のカスタムシナリオを登録します。
-            <strong>Write Script</strong>（書き込みトランザクション）と
-            <strong>Read Script</strong>（読み取りトランザクション）の2つを1組として登録し、
-            ベンチマーク実行時にそれぞれの実行割合を指定できます。<br>
-            pgbench の <code>-f script@weight</code> 構文を利用します。
+            {{ t('scripts.bench_info') }}
         </div>
 
         {% if bench_scenarios %}

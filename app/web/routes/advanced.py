@@ -223,7 +223,7 @@ def _hint_plan_setup():
                 region TEXT
             )
         """),
-        ("Insert 500K rows (status: shipped/processing/delivered/cancelled)", """
+        ("Insert 500K rows / 500K行を挿入 (status: shipped/processing/delivered/cancelled)", """
             INSERT INTO hint_demo.orders (customer_id, status, amount, order_date, region)
             SELECT
                 (random() * 10000)::int,
@@ -233,9 +233,9 @@ def _hint_plan_setup():
                 'Region_' || (i % 10)
             FROM generate_series(1, 500000) AS s(i)
         """),
-        ("Create index on status", "CREATE INDEX idx_orders_status ON hint_demo.orders(status)"),
-        ("ANALYZE (establish baseline statistics)", "ANALYZE hint_demo.orders"),
-        ("Insert 200K rows with NEW status='rush' (no re-ANALYZE)", """
+        ("Create index on status / statusにインデックス作成", "CREATE INDEX idx_orders_status ON hint_demo.orders(status)"),
+        ("ANALYZE (establish baseline statistics / 統計情報のベースラインを確立)", "ANALYZE hint_demo.orders"),
+        ("Insert 200K rush rows without re-ANALYZE / rush行200Kを追加(再ANALYZEなし)", """
             INSERT INTO hint_demo.orders (customer_id, status, amount, order_date, region)
             SELECT
                 (random() * 10000)::int,
@@ -267,10 +267,12 @@ def _pgvector_setup():
                 created_at TIMESTAMPTZ DEFAULT now()
             )
         """),
-        ("Create keyword vectorization function", r"""
+        ("Create keyword vectorization function / キーワードベクトル化関数を作成", r"""
             CREATE OR REPLACE FUNCTION vector_demo.text_to_vector(input_text TEXT)
             RETURNS vector(20) AS $$
             DECLARE
+                -- Business keyword dictionary (20 dimensions)
+                -- ビジネスキーワード辞書（20次元）
                 keywords TEXT[] := ARRAY[
                     '商談', '契約', '提案', '見積', '受注',
                     '失注', '訪問', '電話', 'メール', '会議',
@@ -298,7 +300,9 @@ def _pgvector_setup():
             END;
             $$ LANGUAGE plpgsql IMMUTABLE
         """),
-        ("Insert sample diary entries", """
+        ("Insert sample diary entries / サンプル日報データを挿入", """
+            -- Sample sales diary entries (Japanese business content for keyword-based vectorization demo)
+            -- サンプル営業日報（キーワードベクトル化デモ用の日本語ビジネスコンテンツ）
             INSERT INTO vector_demo.sales_diary (diary_date, salesperson, company, content) VALUES
             ('2026-02-10', '田中太郎', 'A社', '新規商談の訪問。提案資料を持参し導入について説明。先方は前向きで来週見積を提出予定。'),
             ('2026-02-12', '田中太郎', 'B社', '既存顧客への定期訪問。サポート品質に満足との声。追加導入を検討中。'),
@@ -306,12 +310,12 @@ def _pgvector_setup():
             ('2026-02-16', '佐藤花子', 'D社', '電話にて受注確認。契約書を来週送付。決裁完了。'),
             ('2026-02-18', '鈴木一郎', 'E社', 'メールで新規提案資料を送付。検討中との返信。来週訪問のアポイント取得。')
         """),
-        ("Vectorize all entries", """
+        ("Vectorize all entries / 全エントリをベクトル化", """
             UPDATE vector_demo.sales_diary
             SET embedding = vector_demo.text_to_vector(content)
             WHERE embedding IS NULL
         """),
-        ("Create HNSW index", """
+        ("Create HNSW index / HNSWインデックス作成", """
             CREATE INDEX ON vector_demo.sales_diary
             USING hnsw (embedding vector_cosine_ops)
         """),

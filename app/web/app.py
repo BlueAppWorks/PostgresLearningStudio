@@ -6,7 +6,9 @@ directly from the SPCS container.
 
 import os
 
-from flask import Flask
+from flask import Flask, make_response, redirect, request
+
+from i18n import get_lang, t
 
 
 def create_app() -> Flask:
@@ -16,6 +18,20 @@ def create_app() -> Flask:
         static_folder=os.path.join(os.path.dirname(__file__), "static"),
     )
     app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(32).hex()
+
+    # i18n context processor
+    @app.context_processor
+    def inject_i18n():
+        return {"t": t, "lang": get_lang()}
+
+    # Language toggle route
+    @app.route("/lang/<code>")
+    def set_lang(code):
+        if code not in ("en", "ja"):
+            code = "en"
+        resp = make_response(redirect(request.referrer or "/"))
+        resp.set_cookie("lang", code, max_age=60 * 60 * 24 * 365)
+        return resp
 
     # Register blueprints
     from web.routes.benchmark import benchmark_bp

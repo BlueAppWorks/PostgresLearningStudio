@@ -24,12 +24,9 @@
 
 <div class="d-flex justify-content-between align-items-start mb-3">
     <div>
-        <h2>PostGIS Demo</h2>
+        <h2>{{ t('postgis.title') }}</h2>
         <p class="text-muted">
-            地理空間データの格納・検索・地図描画を体験します。
-            <a href="https://postgis.net/" target="_blank" rel="noopener">PostGIS</a> は
-            PostgreSQL に地理空間機能を追加する OSS エクステンションです。
-            (<a href="https://github.com/postgis/postgis" target="_blank" rel="noopener">GitHub</a>)
+            {{ t('postgis.intro') }}
         </p>
     </div>
     <button class="btn btn-outline-success" id="btn-setup" onclick="showSetupSQL()">Setup</button>
@@ -57,16 +54,16 @@
 
 <!-- Demo 1: INSERT point -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Demo 1: ポイントの INSERT と地図表示</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo1.title') }}</h5></div>
     <div class="card-body">
-        <p>Snowflake 東京オフィス（八重洲2-2-1）の座標を DB に INSERT し、地図上にプロットします。</p>
-        <div class="sql-display" id="sql-demo1">-- Snowflake Tokyo Office を INSERT
+        <p>{{ t('postgis.demo1.desc') }}</p>
+        <div class="sql-display" id="sql-demo1">-- Insert Snowflake Tokyo Office / Snowflake Tokyo Office を INSERT
 INSERT INTO postgis_demo.points (name, category, geom) VALUES
 ('Snowflake Tokyo Office', 'office',
  ST_SetSRID(ST_MakePoint(139.77076, 35.67986), 4326))
 ON CONFLICT (name) DO NOTHING;
 
--- 地図表示用に座標を取得
+-- Retrieve coordinates for map display / 地図表示用に座標を取得
 SELECT name, category,
        ST_X(geom) AS lng, ST_Y(geom) AS lat
 FROM postgis_demo.points WHERE name = 'Snowflake Tokyo Office';</div>
@@ -77,10 +74,10 @@ FROM postgis_demo.points WHERE name = 'Snowflake Tokyo Office';</div>
 
 <!-- Demo 2: Multiple points -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Demo 2: 複数ポイントのプロット</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo2.title') }}</h5></div>
     <div class="card-body">
-        <p>東京駅周辺のランドマークを追加し、地図上に全ポイントをプロットします。</p>
-        <div class="sql-display" id="sql-demo2">-- 東京駅周辺のランドマークを INSERT
+        <p>{{ t('postgis.demo2.desc') }}</p>
+        <div class="sql-display" id="sql-demo2">-- Insert landmarks around Tokyo Station / 東京駅周辺のランドマークを INSERT
 INSERT INTO postgis_demo.points (name, category, geom) VALUES
 ('東京駅', 'station', ST_SetSRID(ST_MakePoint(139.7671, 35.6812), 4326)),
 ('日本橋', 'landmark', ST_SetSRID(ST_MakePoint(139.7745, 35.6839), 4326)),
@@ -88,7 +85,7 @@ INSERT INTO postgis_demo.points (name, category, geom) VALUES
 ('皇居前広場', 'park', ST_SetSRID(ST_MakePoint(139.7528, 35.6852), 4326))
 ON CONFLICT (name) DO NOTHING;
 
--- 全ポイントを取得
+-- Retrieve all points / 全ポイントを取得
 SELECT name, category,
        ST_X(geom) AS lng, ST_Y(geom) AS lat
 FROM postgis_demo.points ORDER BY id;</div>
@@ -99,12 +96,12 @@ FROM postgis_demo.points ORDER BY id;</div>
 
 <!-- Demo 3: Line + Distance -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Demo 3: ラインの描画と距離計算</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo3.title') }}</h5></div>
     <div class="card-body">
-        <p>始点 → 中継点 → Snowflake Office を結ぶラインを作成し、<code>ST_Length(geography)</code> で総距離を計算します。</p>
+        <p>{{ t('postgis.demo3.desc') }}</p>
         <div class="row g-3 mb-3">
             <div class="col-md-4">
-                <label class="form-label">始点</label>
+                <label class="form-label">{{ t('postgis.demo3.start') }}</label>
                 <select class="form-select" id="line-start" onchange="updateLineSQL()">
                     <option value="139.7671,35.6812">東京駅</option>
                     <option value="139.7016,35.6580">渋谷駅</option>
@@ -112,7 +109,7 @@ FROM postgis_demo.points ORDER BY id;</div>
                 </select>
             </div>
             <div class="col-md-4">
-                <label class="form-label">中継点</label>
+                <label class="form-label">{{ t('postgis.demo3.via') }}</label>
                 <select class="form-select" id="line-via" onchange="updateLineSQL()">
                     <option value="139.7745,35.6839">日本橋</option>
                     <option value="139.7649,35.6714">銀座</option>
@@ -120,7 +117,7 @@ FROM postgis_demo.points ORDER BY id;</div>
                 </select>
             </div>
             <div class="col-md-4">
-                <label class="form-label">終点（固定）</label>
+                <label class="form-label">{{ t('postgis.demo3.end') }}</label>
                 <input class="form-control" value="Snowflake Tokyo Office" disabled>
             </div>
         </div>
@@ -132,10 +129,10 @@ FROM postgis_demo.points ORDER BY id;</div>
 
 <!-- Demo 4: Polygon containment -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Demo 4: ポリゴンの包含判定 (ST_Contains)</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo4.title') }}</h5></div>
     <div class="card-body">
-        <p>八重洲エリアを四角く囲うポリゴンを作成し、<code>ST_Contains</code> で各ポイントが中に入っているかを判定します。</p>
-        <div class="sql-display" id="sql-demo4">-- 八重洲エリアのポリゴンを作成
+        <p>{{ t('postgis.demo4.desc') }}</p>
+        <div class="sql-display" id="sql-demo4">-- Create Yaesu area polygon / 八重洲エリアのポリゴンを作成
 INSERT INTO postgis_demo.polygons (name, geom) VALUES
 ('八重洲エリア',
  ST_SetSRID(ST_MakePolygon(ST_GeomFromText(
@@ -143,7 +140,7 @@ INSERT INTO postgis_demo.polygons (name, geom) VALUES
  )), 4326))
 ON CONFLICT (name) DO NOTHING;
 
--- 包含判定
+-- Containment check / 包含判定
 SELECT p.name AS point_name,
        ST_Contains(
          (SELECT geom FROM postgis_demo.polygons WHERE name = '八重洲エリア'),
@@ -354,7 +351,8 @@ function updateLineSQL() {
     const vName = via.options[via.selectedIndex].text;
 
     document.getElementById('sql-demo3').textContent =
-`-- ${sName} -> ${vName} -> Snowflake Office のラインを INSERT
+`-- Insert line: ${sName} -> ${vName} -> SF Office
+-- ${sName} -> ${vName} -> Snowflake Office のラインを INSERT
 INSERT INTO postgis_demo.lines (name, geom) VALUES
 ('${sName}->${vName}->SF Office',
  ST_SetSRID(ST_MakeLine(ARRAY[
@@ -363,7 +361,7 @@ INSERT INTO postgis_demo.lines (name, geom) VALUES
    ST_MakePoint(139.77076, 35.67986)
  ]), 4326));
 
--- ラインと総距離(m)を取得
+-- Get line and total distance (m) / ラインと総距離(m)を取得
 SELECT name,
        ROUND(ST_Length(geom::geography)) AS distance_m,
        ROUND((ST_Length(geom::geography) / 1000.0)::numeric, 2) AS distance_km

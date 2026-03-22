@@ -22,11 +22,9 @@
 
 <div class="d-flex justify-content-between align-items-start mb-3">
     <div>
-        <h2>pgvector Demo</h2>
+        <h2>{{ t('vector.title') }}</h2>
         <p class="text-muted">
-            テキストをベクトルに変換し、意味的に似た文書を検索する「セマンティック検索」を体験します。
-            <a href="https://github.com/pgvector/pgvector" target="_blank" rel="noopener">pgvector</a> は
-            PostgreSQL にベクトル型とベクトル検索を追加する OSS エクステンションです。
+            {{ t('vector.intro') }}
         </p>
     </div>
     <button class="btn btn-outline-success" id="btn-setup" onclick="showSetupSQL()">Setup</button>
@@ -49,32 +47,32 @@
 
 <!-- How it works -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">仕組み</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('vector.how_title') }}</h5></div>
     <div class="card-body">
-        <p>このデモでは、ビジネス関連のキーワード辞書を使った簡易ベクトル化を行います。<br>
-           <small class="text-muted">（本番環境では OpenAI Embeddings や Snowflake Cortex などの AI モデルでより高精度なベクトルを生成します）</small></p>
-        <p><strong>キーワード辞書（20次元ベクトル）:</strong></p>
+        <p>{{ t('vector.how_desc') }}</p>
+        <p>{{ t('vector.keywords_title') }}</p>
         <div class="mb-2">
-            <span class="keyword-badge">商談</span><span class="keyword-badge">契約</span>
-            <span class="keyword-badge">提案</span><span class="keyword-badge">見積</span>
-            <span class="keyword-badge">受注</span><span class="keyword-badge">失注</span>
-            <span class="keyword-badge">訪問</span><span class="keyword-badge">電話</span>
-            <span class="keyword-badge">メール</span><span class="keyword-badge">会議</span>
-            <span class="keyword-badge">新規</span><span class="keyword-badge">既存</span>
-            <span class="keyword-badge">競合</span><span class="keyword-badge">価格</span>
-            <span class="keyword-badge">納期</span><span class="keyword-badge">品質</span>
-            <span class="keyword-badge">サポート</span><span class="keyword-badge">導入</span>
-            <span class="keyword-badge">検討</span><span class="keyword-badge">決裁</span>
+            <span class="keyword-badge">商談 (deal)</span><span class="keyword-badge">契約 (contract)</span>
+            <span class="keyword-badge">提案 (proposal)</span><span class="keyword-badge">見積 (estimate)</span>
+            <span class="keyword-badge">受注 (order)</span><span class="keyword-badge">失注 (lost)</span>
+            <span class="keyword-badge">訪問 (visit)</span><span class="keyword-badge">電話 (phone)</span>
+            <span class="keyword-badge">メール (email)</span><span class="keyword-badge">会議 (meeting)</span>
+            <span class="keyword-badge">新規 (new)</span><span class="keyword-badge">既存 (existing)</span>
+            <span class="keyword-badge">競合 (competitor)</span><span class="keyword-badge">価格 (price)</span>
+            <span class="keyword-badge">納期 (delivery)</span><span class="keyword-badge">品質 (quality)</span>
+            <span class="keyword-badge">サポート (support)</span><span class="keyword-badge">導入 (adoption)</span>
+            <span class="keyword-badge">検討 (review)</span><span class="keyword-badge">決裁 (approval)</span>
         </div>
-        <p class="small text-muted">各キーワードの出現回数を数えてベクトル化し、L2正規化します。</p>
+        <p class="small text-muted">{{ t('vector.keywords_note') }}</p>
     </div>
 </div>
 
 <!-- Step 1: View existing data -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Step 1: 既存の営業日報を確認</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('vector.step1.title') }}</h5></div>
     <div class="card-body">
-        <div class="sql-display">-- 営業日報の一覧（ベクトルは省略表示）
+        <div class="sql-display">-- List sales diary entries (vector display omitted)
+-- 営業日報の一覧（ベクトルは省略表示）
 SELECT id, diary_date, salesperson, company,
        LEFT(content, 50) || '...' AS content_preview,
        embedding IS NOT NULL AS has_vector
@@ -86,19 +84,19 @@ FROM vector_demo.sales_diary ORDER BY id;</div>
 
 <!-- Step 2: INSERT new entry -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Step 2: 新しい日報を INSERT</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('vector.step2.title') }}</h5></div>
     <div class="card-body">
         <div class="row g-3 mb-3">
             <div class="col-md-3">
-                <label class="form-label">営業担当</label>
+                <label class="form-label">{{ t('vector.step2.person') }}</label>
                 <input type="text" class="form-control" id="input-person" value="山田次郎">
             </div>
             <div class="col-md-3">
-                <label class="form-label">会社名</label>
+                <label class="form-label">{{ t('vector.step2.company') }}</label>
                 <input type="text" class="form-control" id="input-company" value="F社">
             </div>
             <div class="col-md-6">
-                <label class="form-label">日報内容</label>
+                <label class="form-label">{{ t('vector.step2.content') }}</label>
                 <textarea class="form-control" id="input-content" rows="2">新規商談で訪問。提案資料を用いて導入メリットを説明。見積を来週提出予定。検討中。</textarea>
             </div>
         </div>
@@ -110,15 +108,15 @@ FROM vector_demo.sales_diary ORDER BY id;</div>
 
 <!-- Step 3: Vectorize -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Step 3: ベクトル化 (UPDATE)</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('vector.step3.title') }}</h5></div>
     <div class="card-body">
-        <p>INSERT した行のテキストをベクトルに変換します。<code>embedding IS NULL</code> の行のみが対象です。</p>
-        <div class="sql-display">-- 未ベクトル化の行をベクトル化
+        <p>{{ t('vector.step3.desc') }}</p>
+        <div class="sql-display">-- Vectorize rows without embeddings / 未ベクトル化の行をベクトル化
 UPDATE vector_demo.sales_diary
 SET embedding = vector_demo.text_to_vector(content)
 WHERE embedding IS NULL;
 
--- ベクトル化結果を確認（最新の行）
+-- Check the result (latest row) / ベクトル化結果を確認（最新の行）
 SELECT id, LEFT(content, 40) AS content_preview,
        embedding::text AS vector
 FROM vector_demo.sales_diary
@@ -130,23 +128,23 @@ ORDER BY id DESC LIMIT 1;</div>
 
 <!-- Step 4: Semantic search -->
 <div class="card step-card mb-4">
-    <div class="card-header"><h5 class="mb-0">Step 4: セマンティック検索</h5></div>
+    <div class="card-header"><h5 class="mb-0">{{ t('vector.step4.title') }}</h5></div>
     <div class="card-body">
-        <p>自然言語で検索し、意味的に近い日報を見つけます。</p>
+        <p>{{ t('vector.step4.desc') }}</p>
         <div class="row g-3 mb-3">
             <div class="col-md-8">
-                <label class="form-label">検索テキスト</label>
+                <label class="form-label">{{ t('vector.step4.search_label') }}</label>
                 <input type="text" class="form-control" id="search-text"
-                       value="新規の商談で提案した案件" placeholder="自然言語で検索...">
+                       value="新規の商談で提案した案件" placeholder="{% if lang == 'ja' %}自然言語で検索...{% else %}Search in natural language...{% endif %}">
             </div>
             <div class="col-md-4">
-                <label class="form-label">プリセット</label>
+                <label class="form-label">{{ t('vector.step4.preset_label') }}</label>
                 <select class="form-select" onchange="document.getElementById('search-text').value=this.value">
-                    <option value="新規の商談で提案した案件">新規商談・提案</option>
-                    <option value="既存顧客のサポート品質">既存顧客・サポート</option>
-                    <option value="契約と受注の確認">契約・受注</option>
-                    <option value="競合との価格比較">競合・価格</option>
-                    <option value="メールで検討状況を確認">メール・検討</option>
+                    <option value="新規の商談で提案した案件">{% if lang == 'ja' %}新規商談・提案{% else %}New deal / Proposal{% endif %}</option>
+                    <option value="既存顧客のサポート品質">{% if lang == 'ja' %}既存顧客・サポート{% else %}Existing customer / Support{% endif %}</option>
+                    <option value="契約と受注の確認">{% if lang == 'ja' %}契約・受注{% else %}Contract / Order{% endif %}</option>
+                    <option value="競合との価格比較">{% if lang == 'ja' %}競合・価格{% else %}Competitor / Price{% endif %}</option>
+                    <option value="メールで検討状況を確認">{% if lang == 'ja' %}メール・検討{% else %}Email / Review{% endif %}</option>
                 </select>
             </div>
         </div>
@@ -160,6 +158,7 @@ ORDER BY id DESC LIMIT 1;</div>
 {% block scripts %}
 <script>
 const EXT = 'pgvector';
+const LANG = '{{ lang }}';
 let _setupSQL = '';
 
 async function execSQL(sql) {
@@ -273,7 +272,6 @@ async function runStep3() {
 SET embedding = vector_demo.text_to_vector(content)
 WHERE embedding IS NULL`);
 
-    // Show update count prominently
     let html = '';
     const cnt = update.row_count || 0;
     if (cnt > 0) {
@@ -282,7 +280,6 @@ WHERE embedding IS NULL`);
         html += `<span class="badge bg-secondary fs-6">No rows to vectorize (all already have vectors)</span><br><br>`;
     }
 
-    // Show the most recently vectorized row
     const check = await execSQL(`SELECT id, LEFT(content, 40) AS content_preview,
        embedding::text AS vector
 FROM vector_demo.sales_diary
@@ -295,7 +292,8 @@ ORDER BY id DESC LIMIT 1`);
 function updateStep4SQL() {
     const text = escapeSQL(document.getElementById('search-text').value);
     document.getElementById('sql-step4').textContent =
-`-- 検索テキストをベクトル化し、コサイン類似度で近い日報を検索
+`-- Vectorize search text and find similar diary entries by cosine similarity
+-- 検索テキストをベクトル化し、コサイン類似度で近い日報を検索
 SELECT id, diary_date, salesperson, company,
        LEFT(content, 60) AS content_preview,
        1 - (embedding <=> vector_demo.text_to_vector('${text}')) AS similarity
@@ -318,7 +316,7 @@ ORDER BY embedding <=> vector_demo.text_to_vector('${text}')
 LIMIT 5`;
     const data = await execSQL(sql);
 
-    let html = '<strong>検索結果（コサイン類似度順）:</strong><br>';
+    let html = '{{ t("vector.step4.results_title") }}<br>';
     if (data.rows && data.rows.length > 0) {
         html += '<div class="mt-2">';
         data.rows.forEach((r, i) => {
