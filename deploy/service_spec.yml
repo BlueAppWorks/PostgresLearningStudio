@@ -1,7 +1,7 @@
 spec:
   containers:
   - name: postgres-learning-studio
-    image: /POSTGRES_LEARNING_STUDIO_DB/APP_SCHEMA/POSTGRES_LEARNING_STUDIO_REPO/postgres-learning-studio:v3
+    image: /POSTGRES_LEARNING_STUDIO_DB/APP_SCHEMA/POSTGRES_LEARNING_STUDIO_REPO/postgres-learning-studio:v4
     secrets:
     - snowflakeSecret: app_config.postgres_secret
       secretKeyRef: username
