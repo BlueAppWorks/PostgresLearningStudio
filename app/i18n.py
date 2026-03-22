@@ -331,6 +331,126 @@ TRANSLATIONS = {
         "en": '<strong>pg_lake not found:</strong> pg_lake is not available in <code>pg_available_extensions</code> on this server. On Snowflake Postgres, install with <code>CREATE EXTENSION pg_lake CASCADE</code>. S3 storage integration must be configured first.',
         "ja": '<strong>pg_lake が見つかりません:</strong> このサーバーの <code>pg_available_extensions</code> に pg_lake がありません。Snowflake Postgres では <code>CREATE EXTENSION pg_lake CASCADE</code> でインストールします。事前に S3 ストレージ統合の設定が必要です。',
     },
+    # ── pg_lake Setup Guide ──
+    "lake.setup.title": {
+        "en": "Getting Started with pg_lake",
+        "ja": "pg_lake セットアップガイド",
+    },
+    "lake.setup.intro": {
+        "en": "Step-by-step guide to enable pg_lake on Snowflake Postgres. Some steps require AWS Console or Snowflake Worksheet — the app generates scripts you can copy.",
+        "ja": "Snowflake Postgres で pg_lake を有効化するためのステップバイステップガイドです。一部のステップは AWS Console や Snowflake Worksheet での作業が必要ですが、アプリがコピー可能なスクリプトを生成します。",
+    },
+    "lake.setup.card_desc": {
+        "en": "Configure S3 storage integration, IAM roles, and install pg_lake. The app generates AWS IAM policies and Snowflake SQL dynamically.",
+        "ja": "S3 ストレージ統合、IAM ロール設定、pg_lake インストールを行います。アプリが AWS IAM ポリシーと Snowflake SQL を動的に生成します。",
+    },
+    "lake.setup.config_title": {
+        "en": "Configuration Values",
+        "ja": "設定値",
+    },
+    "lake.setup.config_desc": {
+        "en": "Enter your values here. All scripts below will update automatically.",
+        "ja": "ここに値を入力してください。以下のスクリプトが自動的に更新されます。",
+    },
+    "lake.setup.step1.title": {
+        "en": "Create S3 Bucket",
+        "ja": "S3 バケットの作成",
+    },
+    "lake.setup.step1.desc": {
+        "en": "Create an S3 bucket in the <strong>same AWS region</strong> as your Snowflake account.",
+        "ja": "Snowflake アカウントと<strong>同じ AWS リージョン</strong>に S3 バケットを作成してください。",
+    },
+    "lake.setup.step1.note1": {
+        "en": "Block all public access (default settings are fine)",
+        "ja": "パブリックアクセスをすべてブロック（デフォルト設定で OK）",
+    },
+    "lake.setup.step1.note2": {
+        "en": "The bucket must be in the same region as your Snowflake account",
+        "ja": "バケットは Snowflake アカウントと同じリージョンに作成する必要があります",
+    },
+    "lake.setup.step2.title": {
+        "en": "Create IAM Policy",
+        "ja": "IAM ポリシーの作成",
+    },
+    "lake.setup.step2.desc": {
+        "en": "Create an IAM policy in AWS Console with the following JSON. The policy grants S3 read/write access to the bucket.",
+        "ja": "以下の JSON で AWS Console に IAM ポリシーを作成します。バケットへの S3 読み書きアクセスを許可するポリシーです。",
+    },
+    "lake.setup.step3.title": {
+        "en": "Create IAM Role",
+        "ja": "IAM ロールの作成",
+    },
+    "lake.setup.step3.desc": {
+        "en": "Create an IAM role and attach the policy from Step 2.",
+        "ja": "IAM ロールを作成し、Step 2 のポリシーをアタッチします。",
+    },
+    "lake.setup.step3.note1": {
+        "en": 'Trusted entity: <strong>AWS account</strong> (use your own account ID for now — will be updated in Step 6)',
+        "ja": '信頼されたエンティティ: <strong>AWS アカウント</strong>（まずは自分のアカウント ID で作成 — Step 6 で更新）',
+    },
+    "lake.setup.step3.note2": {
+        "en": '<strong>Important:</strong> Set "Maximum session duration" to <strong>12 hours</strong> (default 1 hour will not work)',
+        "ja": '<strong>重要:</strong>「最大セッション時間」を <strong>12 時間</strong>に設定してください（デフォルトの1時間では動作しません）',
+    },
+    "lake.setup.step4.title": {
+        "en": "Create Storage Integration",
+        "ja": "Storage Integration の作成",
+    },
+    "lake.setup.step4.desc": {
+        "en": "Run the following SQL in a <strong>Snowflake Worksheet</strong> as ACCOUNTADMIN.",
+        "ja": "以下の SQL を <strong>Snowflake Worksheet</strong> で ACCOUNTADMIN として実行してください。",
+    },
+    "lake.setup.step5.title": {
+        "en": "Get Snowflake ARN & External ID",
+        "ja": "Snowflake ARN と External ID の取得",
+    },
+    "lake.setup.step5.desc": {
+        "en": "Run DESCRIBE INTEGRATION in Snowflake and paste the two values below. These are needed to update the IAM trust policy.",
+        "ja": "Snowflake で DESCRIBE INTEGRATION を実行し、以下の2つの値を貼り付けてください。IAM 信頼ポリシーの更新に必要です。",
+    },
+    "lake.setup.step6.title": {
+        "en": "Update IAM Trust Policy",
+        "ja": "IAM Trust Policy の更新",
+    },
+    "lake.setup.step6.desc": {
+        "en": "Update the IAM role's trust policy in AWS Console with the Snowflake ARN and External ID from Step 5.",
+        "ja": "Step 5 で取得した Snowflake ARN と External ID を使い、AWS Console で IAM ロールの信頼ポリシーを更新してください。",
+    },
+    "lake.setup.step7.title": {
+        "en": "Attach Integration to Postgres Instance",
+        "ja": "Integration を Postgres インスタンスに紐付け",
+    },
+    "lake.setup.step7.desc": {
+        "en": "Run the following SQL in a <strong>Snowflake Worksheet</strong> as ACCOUNTADMIN to attach the storage integration.",
+        "ja": "以下の SQL を <strong>Snowflake Worksheet</strong> で ACCOUNTADMIN として実行し、ストレージ統合を紐付けてください。",
+    },
+    "lake.setup.step8.title": {
+        "en": "Install pg_lake Extension",
+        "ja": "pg_lake エクステンションのインストール",
+    },
+    "lake.setup.step8.desc": {
+        "en": "Click <strong>Run</strong> to install pg_lake and all dependent extensions.",
+        "ja": "<strong>Run</strong> をクリックして pg_lake と依存エクステンションをインストールします。",
+    },
+    "lake.setup.step9.title": {
+        "en": "Set Default S3 Location",
+        "ja": "デフォルト S3 ロケーションの設定",
+    },
+    "lake.setup.step9.desc": {
+        "en": "Set the default S3 prefix where Iceberg tables will store data.",
+        "ja": "Iceberg テーブルがデータを格納するデフォルトの S3 プレフィックスを設定します。",
+    },
+
+    # ── pg_lake Demos ──
+    "lake.demos.title": {
+        "en": "pg_lake Demos",
+        "ja": "pg_lake デモ",
+    },
+    "lake.demos.card_desc": {
+        "en": "Interactive demos: Iceberg tables, COPY TO/FROM S3, Foreign Tables, and IoT Hot/Cold partition lifecycle.",
+        "ja": "インタラクティブデモ: Iceberg テーブル、COPY TO/FROM S3、Foreign Table、IoT Hot/Cold パーティションライフサイクル。",
+    },
+
     "lake.status_ready": {
         "en": "pg_lake is installed and ready.",
         "ja": "pg_lake はインストール済みで利用可能です。",

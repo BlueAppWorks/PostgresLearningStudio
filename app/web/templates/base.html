@@ -47,7 +47,15 @@
                             <li><a class="dropdown-item" href="/advanced/postgis">PostGIS</a></li>
                             <li><a class="dropdown-item" href="/advanced/hint-plan">pg_hint_plan</a></li>
                             <li><a class="dropdown-item" href="/advanced/pgvector">pgvector</a></li>
-                            <li><a class="dropdown-item" href="/advanced/pg-lake">pg_lake</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle {% if request.path.startswith('/pg-lake') %}active{% endif %}"
+                           href="#" role="button" data-bs-toggle="dropdown">pg_lake</a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/pg-lake/">Overview</a></li>
+                            <li><a class="dropdown-item" href="/pg-lake/setup">Getting Started</a></li>
+                            <li><a class="dropdown-item" href="/pg-lake/demos">Demos</a></li>
                         </ul>
                     </li>
                     <li class="nav-item dropdown">

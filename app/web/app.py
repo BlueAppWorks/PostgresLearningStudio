@@ -44,6 +44,7 @@ def create_app() -> Flask:
     from web.routes.scripts import scripts_bp
     from web.routes.targets import targets_bp
     from web.routes.advanced import advanced_bp
+    from web.routes.pg_lake import pg_lake_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(index_bp)
@@ -55,6 +56,7 @@ def create_app() -> Flask:
     app.register_blueprint(targets_bp)
     app.register_blueprint(scripts_bp)
     app.register_blueprint(advanced_bp)
+    app.register_blueprint(pg_lake_bp)
 
     # Prevent browsers from caching HTML after Compute Pool suspend/resume
     @app.after_request

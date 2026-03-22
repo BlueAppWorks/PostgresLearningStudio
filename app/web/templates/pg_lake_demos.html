@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %}pg_lake Demos - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/pg-lake/">pg_lake</a></li>
+    <li class="breadcrumb-item active">Demos</li>
+</ol></nav>
+
+<h2>{{ t('lake.demos.title') }}</h2>
+
+{% if not pg_lake_status.installed %}
+<div class="alert alert-warning mb-3">
+    pg_lake is not installed. <a href="/pg-lake/setup" class="alert-link">Complete the Getting Started guide</a> first.
+</div>
+{% endif %}
+
+<!-- ── Demo 1: Iceberg Table Basics ── -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">{{ t('lake.demo1.title') }}</h5>
+        <button class="btn btn-outline-primary btn-sm" onclick="runSetup()">Setup</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.demo1.desc') }}</p>
+        <div id="setupResult"></div>
+
+        <h6>{{ t('lake.demo1.query_title') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo1Sql">SELECT date_trunc('day', log_time) AS day,
+       count(*) AS requests,
+       avg(response_ms)::numeric(10,2) AS avg_ms
+FROM lake_demo.access_logs
+WHERE log_time >= now() - interval '7 days'
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="runQuery('demo1Sql', 'demo1Result')">Run Query</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo1Sql', 'demo1Result')">EXPLAIN</button>
+        </div>
+        <div id="demo1Result"></div>
+    </div>
+</div>
+
+<!-- ── Demo 2: COPY TO/FROM S3 ── -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('lake.demo2.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('lake.demo2.desc') }}</p>
+        <div class="alert alert-secondary">{{ t('lake.demo2.s3_note') }}</div>
+
+        <h6>{{ t('lake.demo2.export_title') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code>-- Export to S3 as Parquet
+COPY lake_demo.access_logs TO 's3://your-bucket/demo/access_logs.parquet';
+
+-- Export with filter (errors only)
+COPY (
+    SELECT * FROM lake_demo.access_logs WHERE status >= 400
+) TO 's3://your-bucket/demo/errors.parquet';</code></pre>
+
+        <h6>{{ t('lake.demo2.import_title') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code>-- Import from S3
+CREATE TABLE lake_demo.imported_errors (LIKE lake_demo.access_logs);
+COPY lake_demo.imported_errors FROM 's3://your-bucket/demo/errors.parquet';
+
+SELECT count(*) AS imported_rows FROM lake_demo.imported_errors;</code></pre>
+    </div>
+</div>
+
+<!-- ── Demo 3: Foreign Table ── -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('lake.demo3.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('lake.demo3.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>-- Create foreign table pointing to S3 Parquet
+CREATE FOREIGN TABLE lake_demo.s3_logs ()
+    SERVER pg_lake
+    OPTIONS (path 's3://your-bucket/demo/access_logs.parquet');
+
+-- Query directly (no data copy)
+SELECT action, count(*) AS cnt,
+       avg(response_ms)::numeric(10,2) AS avg_ms
+FROM lake_demo.s3_logs
+GROUP BY action ORDER BY cnt DESC;
+
+-- List files in S3
+SELECT path FROM lake_file.list('s3://your-bucket/demo/**/*.parquet');</code></pre>
+    </div>
+</div>
+
+<!-- ── Demo 4: Hot/Cold Partition Lifecycle ── -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('lake.demo4.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('lake.demo4.desc') }}</p>
+        <div class="alert alert-info">{{ t('lake.demo4.arch_note') }}</div>
+
+        <pre class="bg-dark text-light p-3 rounded" style="font-size:0.78rem"><code>{{ t('lake.demo4.arch_diagram') }}</code></pre>
+
+        <h6>Step 1: {{ t('lake.demo4.step1') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step1">CREATE SCHEMA IF NOT EXISTS iot;
+
+CREATE TABLE iot.sensor_data (
+    ts        TIMESTAMPTZ NOT NULL,
+    device_id INT         NOT NULL,
+    temp      DOUBLE PRECISION,
+    humidity  DOUBLE PRECISION,
+    pressure  DOUBLE PRECISION
+) PARTITION BY RANGE (ts);
+
+SELECT partman.create_parent(
+    p_parent_table := 'iot.sensor_data',
+    p_control      := 'ts',
+    p_interval     := 'daily',
+    p_premake      := 3
+);</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step1', 'demo4R1')">Run</button>
+        <div id="demo4R1"></div>
+
+        <h6>Step 2: {{ t('lake.demo4.step2') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step2">CREATE TABLE iot.sensor_archive (
+    ts        TIMESTAMPTZ NOT NULL,
+    device_id INT         NOT NULL,
+    temp      DOUBLE PRECISION,
+    humidity  DOUBLE PRECISION,
+    pressure  DOUBLE PRECISION
+) USING iceberg
+  WITH (partition_by = 'day(ts)');</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step2', 'demo4R2')">Run</button>
+        <div id="demo4R2"></div>
+
+        <h6>Step 3: {{ t('lake.demo4.step3') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step3">INSERT INTO iot.sensor_data (ts, device_id, temp, humidity, pressure)
+SELECT
+    now() - (random() * interval '14 days'),
+    (random() * 100)::int,
+    20.0 + random() * 15.0,
+    40.0 + random() * 40.0,
+    1000.0 + (random() - 0.5) * 50.0
+FROM generate_series(1, 100000) AS s(i);</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step3', 'demo4R3')">Run</button>
+        <div id="demo4R3"></div>
+
+        <h6>Step 4: {{ t('lake.demo4.step4') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step4">SELECT date_trunc('day', ts) AS day, count(*) AS rows
+FROM iot.sensor_data
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo4Step4', 'demo4R4')">Run</button>
+        <div id="demo4R4"></div>
+
+        <h6>Step 5: {{ t('lake.demo4.step5') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step5">EXPLAIN (COSTS OFF)
+SELECT avg(temp), avg(humidity)
+FROM iot.sensor_data
+WHERE ts >= now() - interval '2 days';</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="runQuery('demo4Step5', 'demo4R5')">Run EXPLAIN</button>
+        <div id="demo4R5"></div>
+    </div>
+</div>
+
+<!-- ── Snowflake Integration Reference ── -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('lake.sf_ref.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('lake.sf_ref.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>-- === Snowflake: Read Iceberg table from S3 ===
+
+-- 1. External Volume
+CREATE OR REPLACE EXTERNAL VOLUME pg_lake_vol
+    STORAGE_LOCATIONS = ((
+        NAME = 'pg_lake_s3',
+        STORAGE_BASE_URL = 's3://your-bucket/pg_lake/',
+        STORAGE_PROVIDER = 'S3',
+        STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::123456789012:role/pg-lake-access'
+    ));
+
+-- 2. Catalog Integration
+CREATE OR REPLACE CATALOG INTEGRATION pg_lake_catalog
+    CATALOG_SOURCE = OBJECT_STORE
+    TABLE_FORMAT = ICEBERG
+    ENABLED = TRUE;
+
+-- 3. Register Iceberg Table
+CREATE OR REPLACE ICEBERG TABLE analytics.sensor_from_pg
+    EXTERNAL_VOLUME = 'pg_lake_vol'
+    CATALOG = 'pg_lake_catalog'
+    METADATA_FILE_PATH = 'sensor_archive/metadata/v1.metadata.json';
+
+-- 4. Query
+SELECT date_trunc('hour', ts) AS hour,
+       avg(temp) AS avg_temp, count(*) AS readings
+FROM analytics.sensor_from_pg
+GROUP BY 1 ORDER BY 1;
+
+-- 5. Refresh metadata
+ALTER ICEBERG TABLE analytics.sensor_from_pg REFRESH;</code></pre>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function resultTable(data) {
+    if (!data.columns || !data.rows) return '';
+    let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+    html += '<thead><tr>' + data.columns.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+    for (const row of data.rows) {
+        html += '<tr>' + row.map(v => `<td>${v ?? ''}</td>`).join('') + '</tr>';
+    }
+    return html + '</tbody></table></div>';
+}
+
+function runSetup() {
+    const el = document.getElementById('setupResult');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Setting up...';
+    fetch('/pg-lake/run-setup', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+            let html = '<div class="alert alert-info"><strong>Results:</strong><ul class="mb-0">';
+            for (const r of data.results) {
+                const icon = r.status === 'ok' ? '✅' : '❌';
+                html += `<li>${icon} ${r.label} (${r.time_ms}ms)`;
+                if (r.error) html += ` — <span class="text-danger">${r.error}</span>`;
+                if (r.value) html += ` — <code>${r.value}</code>`;
+                html += '</li>';
+            }
+            el.innerHTML = html + '</ul></div>';
+        })
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function runQuery(sqlElId, resultElId) {
+    const sql = document.getElementById(sqlElId).textContent;
+    const el = document.getElementById(resultElId);
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+        if (data.message) { el.innerHTML = `<div class="alert alert-success">${data.message}</div>`; return; }
+        el.innerHTML = resultTable(data);
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function runExplain(sqlElId, resultElId) {
+    const sql = 'EXPLAIN (COSTS OFF)\n' + document.getElementById(sqlElId).textContent;
+    const el = document.getElementById(resultElId);
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+        if (data.rows) {
+            const plan = data.rows.map(r => r[0]).join('\n');
+            el.innerHTML = `<pre class="bg-dark text-light p-3 rounded"><code>${plan}</code></pre>`;
+        }
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+</script>
+{% endblock %}

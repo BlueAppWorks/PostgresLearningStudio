@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% block title %}pg_lake Getting Started - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/pg-lake/">pg_lake</a></li>
+    <li class="breadcrumb-item active">Getting Started</li>
+</ol></nav>
+
+<h2>{{ t('lake.setup.title') }}</h2>
+<p class="text-muted mb-4">{{ t('lake.setup.intro') }}</p>
+
+<!-- Step status bar -->
+<div class="row g-2 mb-4">
+    {% set steps = [
+        ('S3 Bucket', 'aws'),
+        ('IAM Policy', 'aws'),
+        ('IAM Role', 'aws'),
+        ('Storage Integration', 'snowflake'),
+        ('Get ARN/External ID', 'snowflake'),
+        ('Update Trust Policy', 'aws'),
+        ('Attach to Instance', 'snowflake'),
+        ('CREATE EXTENSION', 'app'),
+        ('SET Location Prefix', 'app')
+    ] %}
+    {% for label, where in steps %}
+    <div class="col">
+        <div class="text-center" style="font-size:0.7rem">
+            {% if where == 'aws' %}
+            <span class="badge bg-warning text-dark">AWS</span>
+            {% elif where == 'snowflake' %}
+            <span class="badge bg-info text-dark">Snowflake</span>
+            {% else %}
+            <span class="badge bg-success">This App</span>
+            {% endif %}
+            <br>{{ label }}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Shared input fields -->
+<div class="card mb-4">
+    <div class="card-header"><h6 class="mb-0">{{ t('lake.setup.config_title') }}</h6></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.setup.config_desc') }}</p>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">S3 Bucket Name</label>
+                <input type="text" class="form-control" id="cfgBucket" placeholder="my-pg-lake-data" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">AWS Account ID</label>
+                <input type="text" class="form-control" id="cfgAwsAccount" placeholder="123456789012" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">AWS Region</label>
+                <input type="text" class="form-control" id="cfgRegion" placeholder="ap-northeast-1" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">IAM Role Name</label>
+                <input type="text" class="form-control" id="cfgRoleName" value="snowflake-pg-lake-access" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Storage Integration Name</label>
+                <input type="text" class="form-control" id="cfgIntegration" value="PG_LAKE_S3_INTEGRATION" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Postgres Instance Name</label>
+                <input type="text" class="form-control" id="cfgInstance" value="{{ instance_name }}" oninput="regenerateAll()">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 1: S3 Bucket -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 1:</strong> {{ t('lake.setup.step1.title') }}</span>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step1.desc') }}</p>
+        <ul class="small">
+            <li>{{ t('lake.setup.step1.note1') }}</li>
+            <li>{{ t('lake.setup.step1.note2') }}</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Step 2: IAM Policy -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 2:</strong> {{ t('lake.setup.step2.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('iamPolicyJson')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step2.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded" id="iamPolicyJson"></pre>
+    </div>
+</div>
+
+<!-- Step 3: IAM Role -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 3:</strong> {{ t('lake.setup.step3.title') }}</span>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step3.desc') }}</p>
+        <ul class="small">
+            <li>{{ t('lake.setup.step3.note1') }}</li>
+            <li>{{ t('lake.setup.step3.note2') }}</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Step 4: Storage Integration -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 4:</strong> {{ t('lake.setup.step4.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('integrationSql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step4.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded" id="integrationSql"></pre>
+    </div>
+</div>
+
+<!-- Step 5: Get Snowflake ARN / External ID -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 5:</strong> {{ t('lake.setup.step5.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('describeSql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step5.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded" id="describeSql"></pre>
+        <div class="row g-3 mt-2">
+            <div class="col-md-6">
+                <label class="form-label">STORAGE_AWS_IAM_USER_ARN</label>
+                <input type="text" class="form-control" id="cfgSfArn" placeholder="arn:aws:iam::..." oninput="regenerateAll()">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">STORAGE_AWS_EXTERNAL_ID</label>
+                <input type="text" class="form-control" id="cfgExternalId" placeholder="ABC123_SFCRole=..." oninput="regenerateAll()">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 6: Update Trust Policy -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 6:</strong> {{ t('lake.setup.step6.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('trustPolicyJson')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step6.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded" id="trustPolicyJson"></pre>
+    </div>
+</div>
+
+<!-- Step 7: ALTER POSTGRES INSTANCE -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 7:</strong> {{ t('lake.setup.step7.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('alterInstanceSql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step7.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded" id="alterInstanceSql"></pre>
+    </div>
+</div>
+
+<!-- Step 8: CREATE EXTENSION -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-success me-2">This App</span> <strong>Step 8:</strong> {{ t('lake.setup.step8.title') }}</span>
+        <button class="btn btn-primary btn-sm" onclick="runExtensionSetup()">Run</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step8.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>CREATE EXTENSION IF NOT EXISTS pg_lake CASCADE;</code></pre>
+        <div id="step8Result"></div>
+    </div>
+</div>
+
+<!-- Step 9: SET default_location_prefix -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-success me-2">This App</span> <strong>Step 9:</strong> {{ t('lake.setup.step9.title') }}</span>
+        <button class="btn btn-primary btn-sm" onclick="setLocationPrefix()">Run</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step9.desc') }}</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-8">
+                <label class="form-label">S3 Location Prefix</label>
+                <input type="text" class="form-control" id="cfgLocationPrefix" oninput="regenerateAll()">
+            </div>
+        </div>
+        <pre class="bg-dark text-light p-3 rounded" id="setLocationSql"></pre>
+        <div id="step9Result"></div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function val(id) { return document.getElementById(id)?.value || ''; }
+
+function regenerateAll() {
+    const bucket = val('cfgBucket') || 'your-bucket';
+    const account = val('cfgAwsAccount') || '123456789012';
+    const region = val('cfgRegion') || 'ap-northeast-1';
+    const roleName = val('cfgRoleName') || 'snowflake-pg-lake-access';
+    const integration = val('cfgIntegration') || 'PG_LAKE_S3_INTEGRATION';
+    const instance = val('cfgInstance') || 'YOUR_INSTANCE';
+    const sfArn = val('cfgSfArn') || 'arn:aws:iam::123456789012:user/xxxx';
+    const externalId = val('cfgExternalId') || 'ABC123_SFCRole=...';
+    const roleArn = `arn:aws:iam::${account}:role/${roleName}`;
+
+    // Step 2: IAM Policy
+    document.getElementById('iamPolicyJson').textContent = JSON.stringify({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject", "s3:GetObject", "s3:GetObjectVersion",
+                "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:ListBucket",
+                "s3:GetBucketLocation"
+            ],
+            "Resource": [
+                `arn:aws:s3:::${bucket}`,
+                `arn:aws:s3:::${bucket}/*`
+            ]
+        }]
+    }, null, 2);
+
+    // Step 4: CREATE STORAGE INTEGRATION
+    document.getElementById('integrationSql').textContent =
+`-- Run as ACCOUNTADMIN in Snowflake Worksheet
+USE ROLE ACCOUNTADMIN;
+
+CREATE OR REPLACE STORAGE INTEGRATION ${integration}
+    TYPE = EXTERNAL_STAGE
+    STORAGE_PROVIDER = 'S3'
+    STORAGE_AWS_ROLE_ARN = '${roleArn}'
+    ENABLED = TRUE
+    STORAGE_ALLOWED_LOCATIONS = ('s3://${bucket}/');`;
+
+    // Step 5: DESCRIBE INTEGRATION
+    document.getElementById('describeSql').textContent =
+`-- Run as ACCOUNTADMIN — copy the two values below
+DESCRIBE STORAGE INTEGRATION ${integration};
+
+-- Find these rows in the output:
+-- STORAGE_AWS_IAM_USER_ARN    → paste below
+-- STORAGE_AWS_EXTERNAL_ID     → paste below`;
+
+    // Step 6: Trust Policy
+    document.getElementById('trustPolicyJson').textContent = JSON.stringify({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "AWS": sfArn },
+            "Action": "sts:AssumeRole",
+            "Condition": {
+                "StringEquals": { "sts:ExternalId": externalId }
+            }
+        }]
+    }, null, 2);
+
+    // Step 7: ALTER POSTGRES INSTANCE
+    document.getElementById('alterInstanceSql').textContent =
+`-- Run as ACCOUNTADMIN in Snowflake Worksheet
+USE ROLE ACCOUNTADMIN;
+
+ALTER POSTGRES INSTANCE ${instance}
+    SET STORAGE_INTEGRATION = '${integration}';`;
+
+    // Step 9: SET location prefix
+    const prefix = val('cfgLocationPrefix') || `s3://${bucket}/pg_lake/`;
+    document.getElementById('setLocationSql').textContent =
+`ALTER DATABASE current_database()
+    SET pg_lake_iceberg.default_location_prefix = '${prefix}';`;
+
+    // Auto-fill location prefix placeholder
+    const pfxEl = document.getElementById('cfgLocationPrefix');
+    if (!pfxEl.value) pfxEl.placeholder = `s3://${bucket}/pg_lake/`;
+}
+
+function copyEl(id) {
+    const text = document.getElementById(id)?.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = orig, 1500);
+    });
+}
+
+function runExtensionSetup() {
+    const el = document.getElementById('step8Result');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql: 'CREATE EXTENSION IF NOT EXISTS pg_lake CASCADE'})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        else el.innerHTML = `<div class="alert alert-success">${data.message || 'pg_lake installed successfully.'}</div>`;
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function setLocationPrefix() {
+    const el = document.getElementById('step9Result');
+    const bucket = val('cfgBucket') || 'your-bucket';
+    const prefix = val('cfgLocationPrefix') || `s3://${bucket}/pg_lake/`;
+    const sql = `ALTER DATABASE current_database() SET pg_lake_iceberg.default_location_prefix = '${prefix}'`;
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql: sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        else el.innerHTML = `<div class="alert alert-success">Location prefix set to: ${prefix}</div>`;
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+// Initialize on load
+regenerateAll();
+</script>
+{% endblock %}

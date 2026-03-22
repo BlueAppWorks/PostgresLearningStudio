@@ -2,7 +2,7 @@
 
 import time
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request
 
 from db import get_connection
 
@@ -50,22 +50,7 @@ def pgvector_page():
 
 @advanced_bp.route("/pg-lake")
 def pg_lake():
-    status = {"available": False, "installed": False, "pgduck_ok": False}
-    try:
-        with get_connection() as conn:
-            # Check if pg_lake is in pg_available_extensions
-            cur = conn.execute(
-                "SELECT installed_version, default_version "
-                "FROM pg_available_extensions WHERE name = 'pg_lake'"
-            )
-            row = cur.fetchone()
-            if row:
-                status["available"] = True
-                status["installed"] = row[0] is not None
-                status["version"] = row[0] or row[1]
-    except Exception:
-        pass
-    return render_template("advanced_pg_lake.html", pg_lake_status=status)
+    return redirect("/pg-lake/")
 
 
 # ── Setup SQL preview ──
@@ -78,7 +63,6 @@ def setup_sql(extension):
         "postgis": _postgis_setup,
         "hint_plan": _hint_plan_setup,
         "pgvector": _pgvector_setup,
-        "pg_lake": _pg_lake_setup,
     }
     setup_fn = setup_map.get(extension)
     if not setup_fn:
@@ -97,7 +81,6 @@ def setup(extension):
         "postgis": _postgis_setup,
         "hint_plan": _hint_plan_setup,
         "pgvector": _pgvector_setup,
-        "pg_lake": _pg_lake_setup,
     }
     setup_fn = setup_map.get(extension)
     if not setup_fn:
@@ -162,46 +145,6 @@ def hint_query():
                         pass  # Already loaded via session_preload_libraries
                 cur.execute("SET max_parallel_workers_per_gather = 0")
                 cur.execute("SET statement_timeout = '30s'")
-                cur.execute(sql)
-
-                if cur.description:
-                    columns = [d.name for d in cur.description]
-                    rows = cur.fetchall()
-                    clean_rows = [
-                        [str(v) if v is not None else None for v in row]
-                        for row in rows
-                    ]
-                    return jsonify({
-                        "columns": columns,
-                        "rows": clean_rows,
-                        "row_count": len(clean_rows),
-                    })
-                else:
-                    return jsonify({
-                        "message": f"OK. {cur.rowcount} row(s) affected.",
-                        "row_count": max(cur.rowcount, 0),
-                    })
-    except Exception as e:
-        return jsonify({"error": str(e).strip()[:500]}), 500
-
-
-# ── pg_lake query endpoint ──
-
-
-@advanced_bp.route("/lake-query", methods=["POST"])
-def lake_query():
-    """Execute a pg_lake related query."""
-    data = request.get_json() or {}
-    sql = (data.get("sql") or "").strip()
-
-    if not sql:
-        return jsonify({"error": "No SQL provided"}), 400
-
-    try:
-        with get_connection() as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = '60s'")
                 cur.execute(sql)
 
                 if cur.description:
@@ -379,37 +322,3 @@ def _pgvector_setup():
     ]
 
 
-def _pg_lake_setup():
-    return [
-        ("Install pg_lake", "CREATE EXTENSION IF NOT EXISTS pg_lake CASCADE"),
-        ("Check pg_lake version",
-         "SELECT name, installed_version, default_version "
-         "FROM pg_available_extensions WHERE name = 'pg_lake'"),
-        ("Check shared_preload_libraries", "SHOW shared_preload_libraries"),
-        ("Create demo schema", "CREATE SCHEMA IF NOT EXISTS lake_demo"),
-        ("Drop existing demo tables",
-         "DROP TABLE IF EXISTS lake_demo.access_logs CASCADE"),
-        ("Create Iceberg table (access_logs)", """
-            CREATE TABLE lake_demo.access_logs (
-                log_time   TIMESTAMPTZ NOT NULL DEFAULT now(),
-                user_id    INT,
-                action     TEXT,
-                path       TEXT,
-                status     INT,
-                response_ms DOUBLE PRECISION
-            ) USING iceberg
-              WITH (partition_by = 'day(log_time)')
-        """),
-        ("Insert 10,000 sample rows", """
-            INSERT INTO lake_demo.access_logs
-                (log_time, user_id, action, path, status, response_ms)
-            SELECT
-                now() - (random() * interval '30 days'),
-                (random() * 1000)::int,
-                (ARRAY['GET','POST','PUT','DELETE'])[1 + (i % 4)],
-                '/api/v1/' || (ARRAY['users','orders','products','health'])[1 + (i % 4)],
-                (ARRAY[200, 200, 200, 201, 301, 404, 500])[1 + (i % 7)],
-                random() * 500
-            FROM generate_series(1, 10000) AS s(i)
-        """),
-    ]
