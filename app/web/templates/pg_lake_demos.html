@@ -188,8 +188,26 @@ SELECT partman.create_parent(
         <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step2', 'demo4R2')">Run</button>
         <div id="demo4R2"></div>
 
-        <h6>Step 3: {{ t('lake.demo4.step3') }}</h6>
-        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step3">INSERT INTO iot.sensor_data (ts, device_id, temp, humidity, pressure)
+        <h6>Step 3: {{ t('lake.demo4.step3_pipe') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step3">-- pg_incremental: continuous sync to Iceberg (1-minute interval)
+SELECT incremental.create_pipeline(
+    pipeline_name := 'iot_to_iceberg',
+    query         := $$
+        INSERT INTO iot.sensor_archive (ts, device_id, temp, humidity, pressure)
+        SELECT ts, device_id, temp, humidity, pressure
+        FROM iot.sensor_data
+        WHERE ts >= $1 AND ts < $2
+    $$,
+    interval      := '1 minute'::interval
+);
+
+-- Check pipeline status
+SELECT * FROM incremental.pipelines;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step3', 'demo4R3')">Run</button>
+        <div id="demo4R3"></div>
+
+        <h6>Step 4: {{ t('lake.demo4.step4_data') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step4">INSERT INTO iot.sensor_data (ts, device_id, temp, humidity, pressure)
 SELECT
     now() - (random() * interval '14 days'),
     (random() * 100)::int,
@@ -197,23 +215,89 @@ SELECT
     40.0 + random() * 40.0,
     1000.0 + (random() - 0.5) * 50.0
 FROM generate_series(1, 100000) AS s(i);</code></pre>
-        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step3', 'demo4R3')">Run</button>
-        <div id="demo4R3"></div>
-
-        <h6>Step 4: {{ t('lake.demo4.step4') }}</h6>
-        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step4">SELECT date_trunc('day', ts) AS day, count(*) AS rows
-FROM iot.sensor_data
-GROUP BY 1 ORDER BY 1;</code></pre>
-        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo4Step4', 'demo4R4')">Run</button>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step4', 'demo4R4')">Run</button>
         <div id="demo4R4"></div>
 
-        <h6>Step 5: {{ t('lake.demo4.step5') }}</h6>
-        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step5">EXPLAIN (COSTS OFF)
+        <h6>Step 5: {{ t('lake.demo4.step5_sync') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step5">-- Manual pipeline execution (in production, pg_cron runs this automatically)
+CALL incremental.execute_pipeline('iot_to_iceberg');
+
+-- Verify data synced to Iceberg archive
+SELECT date_trunc('day', ts) AS day, count(*) AS rows
+FROM iot.sensor_archive
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo4Step5', 'demo4R5')">Run</button>
+        <div id="demo4R5"></div>
+
+        <h6>Step 6: {{ t('lake.demo4.step6_switch') }}</h6>
+        <p class="small text-muted">{{ t('lake.demo4.step6_desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step6">DO $$
+DECLARE
+    target_date DATE := current_date - 8;
+    part_name   TEXT := 'iot.sensor_data_p' || to_char(target_date, 'YYYY_MM_DD');
+    fdw_name    TEXT := 'iot.sensor_cold_p' || to_char(target_date, 'YYYY_MM_DD');
+    s3_path     TEXT := 's3://your-bucket/iot/sensor_archive/day=' || target_date || '/';
+    range_start TIMESTAMPTZ := target_date::timestamptz;
+    range_end   TIMESTAMPTZ := (target_date + 1)::timestamptz;
+BEGIN
+    -- 1. DETACH the heap partition
+    EXECUTE format('ALTER TABLE iot.sensor_data DETACH PARTITION %I', part_name);
+
+    -- 2. DROP the heap partition (data already in S3 Iceberg)
+    EXECUTE format('DROP TABLE IF EXISTS %I', part_name);
+
+    -- 3. CREATE FOREIGN TABLE pointing to S3 Iceberg data
+    EXECUTE format(
+        'CREATE FOREIGN TABLE %I (
+            ts        TIMESTAMPTZ NOT NULL,
+            device_id INT         NOT NULL,
+            temp      DOUBLE PRECISION,
+            humidity  DOUBLE PRECISION,
+            pressure  DOUBLE PRECISION
+        ) SERVER pg_lake_server OPTIONS (path %L)',
+        fdw_name, s3_path
+    );
+
+    -- 4. ATTACH as partition (same range as the original)
+    EXECUTE format(
+        'ALTER TABLE iot.sensor_data ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',
+        fdw_name, range_start, range_end
+    );
+
+    RAISE NOTICE 'Switched % from heap to FDW (S3: %)', part_name, s3_path;
+END $$;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step6', 'demo4R6')">Run</button>
+        <div id="demo4R6"></div>
+
+        <h6>Step 7: {{ t('lake.demo4.step7_verify') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step7">-- Verify: recent query only scans heap partitions (Cold = pruned)
+EXPLAIN (COSTS OFF)
 SELECT avg(temp), avg(humidity)
 FROM iot.sensor_data
-WHERE ts >= now() - interval '2 days';</code></pre>
-        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="runQuery('demo4Step5', 'demo4R5')">Run EXPLAIN</button>
-        <div id="demo4R5"></div>
+WHERE ts >= now() - interval '2 days';
+
+-- Full range query: transparently spans Hot (heap) + Cold (FDW)
+SELECT date_trunc('day', ts) AS day,
+       avg(temp)::numeric(5,2)     AS avg_temp,
+       avg(humidity)::numeric(5,2) AS avg_hum,
+       count(*)                    AS rows
+FROM iot.sensor_data
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="runQuery('demo4Step7', 'demo4R7')">Run</button>
+        <div id="demo4R7"></div>
+
+        <h6>Step 8: {{ t('lake.demo4.step8_update') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step8">-- Update historical data via Iceberg archive (not via FDW partition)
+UPDATE iot.sensor_archive
+SET temp = 25.0
+WHERE device_id = 42 AND ts::date = current_date - 8
+LIMIT 1;
+
+-- Automation: schedule Day 8 switch with pg_cron
+-- SELECT cron.schedule('partition_to_fdw', '0 2 * * *',
+--     $$SELECT iot.switch_partition_to_fdw(current_date - 8)$$);</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step8', 'demo4R8')">Run</button>
+        <div id="demo4R8"></div>
     </div>
 </div>
 

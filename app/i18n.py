@@ -592,17 +592,33 @@ TRANSLATIONS = {
         "en": "Create Iceberg archive table",
         "ja": "Iceberg アーカイブテーブル作成",
     },
-    "lake.demo4.step3": {
+    "lake.demo4.step3_pipe": {
+        "en": "Create pg_incremental pipeline",
+        "ja": "pg_incremental パイプラインの作成",
+    },
+    "lake.demo4.step4_data": {
         "en": "Insert 100K sample IoT rows (14 days)",
         "ja": "サンプル IoT データ 100K 行を INSERT（14日分）",
     },
-    "lake.demo4.step4": {
-        "en": "Verify data distribution by day",
-        "ja": "日別データ分布を確認",
+    "lake.demo4.step5_sync": {
+        "en": "Sync to Iceberg archive + verify",
+        "ja": "Iceberg アーカイブに同期 + 確認",
     },
-    "lake.demo4.step5": {
-        "en": "Partition pruning verification",
-        "ja": "パーティションプルーニングの確認",
+    "lake.demo4.step6_switch": {
+        "en": "Switch Day-8 partition: heap → FDW (DETACH / ATTACH)",
+        "ja": "8日前パーティション切替: heap → FDW (DETACH / ATTACH)",
+    },
+    "lake.demo4.step6_desc": {
+        "en": "DETACH the old heap partition, DROP it (data is already in S3 via Iceberg), CREATE a Foreign Table pointing to the S3 path, then ATTACH it back as a partition. The parent table remains queryable throughout.",
+        "ja": "古い heap パーティションを DETACH → DROP（データは既に Iceberg 経由で S3 に存在）→ S3 パスを指す Foreign Table を作成 → パーティションとして ATTACH。親テーブルは一貫してクエリ可能です。",
+    },
+    "lake.demo4.step7_verify": {
+        "en": "Verify partition pruning (Hot vs Cold)",
+        "ja": "パーティションプルーニングの確認（Hot vs Cold）",
+    },
+    "lake.demo4.step8_update": {
+        "en": "Update historical data + automation",
+        "ja": "過去データの更新 + 自動化",
     },
 
     # ── pg_lake Snowflake Reference ──
