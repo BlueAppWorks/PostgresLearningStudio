@@ -343,34 +343,6 @@ GRANT USAGE ON PROCEDURE app_setup.service_url()
 GRANT USAGE ON PROCEDURE app_setup.service_url()
     TO APPLICATION ROLE app_user;
 
--- Backward-compatible alias
-CREATE OR REPLACE PROCEDURE app_setup.get_web_ui_url()
-RETURNS VARCHAR
-LANGUAGE SQL
-EXECUTE AS OWNER
-AS
-$$
-DECLARE
-    url VARCHAR DEFAULT '';
-BEGIN
-    BEGIN
-        SHOW ENDPOINTS IN SERVICE app_services.postgres_learning_studio_service;
-        SELECT "ingress_url" INTO :url
-        FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-        WHERE "name" = 'web';
-    EXCEPTION WHEN OTHER THEN
-        url := '';
-    END;
-
-    RETURN :url;
-END;
-$$;
-
-GRANT USAGE ON PROCEDURE app_setup.get_web_ui_url()
-    TO APPLICATION ROLE app_admin;
-GRANT USAGE ON PROCEDURE app_setup.get_web_ui_url()
-    TO APPLICATION ROLE app_user;
-
 -- ============================================================
 -- Service Logs
 -- ============================================================

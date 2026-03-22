@@ -51,7 +51,9 @@ BEGIN
     SELECT value INTO :pg_port FROM app_config.settings WHERE key = 'pg_port';
 
     IF (:pg_host IS NULL OR :pg_host = '') THEN
-        RETURN '{"type": "ERROR", "payload": {"message": "Postgres host not configured"}}';
+        -- Return placeholder before consumer configures the connection.
+        -- The platform requires a valid response even if not yet configured.
+        RETURN '{"type": "CONFIGURATION", "payload": {"host_ports": ["example.com:5432"], "allowed_secrets": "ALL"}}';
     END IF;
 
     pg_port := COALESCE(:pg_port, '5432');
