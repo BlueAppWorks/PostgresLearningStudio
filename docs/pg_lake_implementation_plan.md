@@ -36,14 +36,22 @@
 - Credential vending は未実装
 - 現時点では Path A の Direct S3 方式を推奨
 
-### pg_partman 連携
+### pg_partman + pg_incremental + pg_lake 連携
 **Snowflake 公式ブログで推奨パターンとして紹介済み:**
 
 推奨スタック: `pg_partman` + `pg_incremental` + `pg_lake`
-1. `pg_partman` で時系列パーティションテーブル（heap）を作成 → Hot/Warm データ
-2. `pg_incremental` で継続的に Iceberg テーブルへ追記（約1分間隔）
-3. `pg_partman` で古いローカルパーティションを自動 DROP → Cold データは S3 の Iceberg のみ
-4. 必要に応じて warm（heap）と cold（Iceberg）の両方をクエリ
+1. `pg_partman` で日次パーティションテーブル（heap）を作成 → Hot データ（直近7日）
+2. `pg_incremental` で継続的に Iceberg テーブルへ差分追記（約1分間隔、pg_cron ベース）
+3. Day 8 に heap パーティションを DETACH → FDW foreign table として再 ATTACH → Cold データ
+4. 親パーティションテーブルへの単一クエリで hot + cold を透過的にアクセス
+5. パーティションプルーニングにより Cold パーティション（S3）への不要なアクセスを実行計画レベルで排除
+6. Snowflake は S3 上の Iceberg テーブルを READ（ALTER ICEBERG TABLE ... REFRESH で1分鮮度）
+
+**FDW パーティション方式の根拠:**
+- PostgreSQL は PG11 以降、foreign table をパーティション子テーブルとして ATTACH 可能（公式サポート）
+- パーティションプルーニングが range 境界に基づいて動作するため、UNION ALL ビューより確実
+- INSERT は heap パーティションにのみルーティングされる（Cold への書き込みは意図通り発生しない）
+- 制約: 親テーブルに UNIQUE INDEX は不可（IoT 時系列データでは問題なし）
 
 ### 現在の制約（Snowflake Postgres 環境）
 - `pg_extension_base` が `shared_preload_libraries` に必要 → 現在 SF Postgres 未設定
@@ -140,73 +148,258 @@ GROUP BY action ORDER BY cnt DESC;
 SELECT path FROM lake_file.list('s3://bucket/demo/**/*.parquet');
 ```
 
-#### Demo 4: パーティションアーカイブ（pg_partman + pg_lake）
-**目的:** 時系列データの自動アーカイブ戦略を体験
+#### Demo 4: IoT Hot/Cold パーティションライフサイクル（pg_partman + pg_incremental + pg_lake）
+**目的:** IoT センサーデータの日次パーティションで、Hot（ローカル heap）→ Cold（S3 Iceberg FDW）の
+ライフサイクル全体を体験。パーティションプルーニングにより Cold 期間の S3 アクセスを実行計画レベルで排除。
 **★ 最優先: Postgres → Iceberg、Snowflake から READ できるところまで**
 
+**アーキテクチャ概要:**
+```
+iot.sensor_data (PARTITION BY RANGE(ts))    ← 親テーブル（単一の入口）
+  │
+  ├── p_2026_03_22 (heap)     ← 今日、アクティブ書き込み
+  ├── p_2026_03_21 (heap)     ← 昨日
+  ├── ...
+  ├── p_2026_03_16 (heap)     ← 7日前
+  │       ↓ pg_incremental（毎分）
+  │       ↓ INSERT INTO iceberg_archive SELECT * FROM heap WHERE ts > last_processed
+  │
+  ├── p_2026_03_15 (FOREIGN TABLE → S3 Iceberg)  ← 8日前、FDW 経由
+  ├── p_2026_03_14 (FOREIGN TABLE → S3 Iceberg)
+  └── ...
+
+Snowflake → S3 Iceberg を READ（ALTER ICEBERG TABLE ... REFRESH で1分鮮度）
+```
+
+**パーティション切り替えライフサイクル:**
+```
+Day 0:   pg_partman が p_YYYY_MM_DD を heap で作成
+Day 0~7: IoT データが INSERT される
+         pg_incremental が毎分 Iceberg archive テーブルに差分追記
+         Snowflake は Iceberg を READ（1分鮮度）
+Day 8:   パーティション切り替え自動化:
+         ① DETACH PARTITION p_old（heap）
+         ② DROP TABLE p_old（データは既に S3 Iceberg にある）
+         ③ CREATE FOREIGN TABLE p_old (...) SERVER pg_lake_server
+              OPTIONS (path 's3://bucket/iot/archive/day=YYYY-MM-DD/')
+         ④ ATTACH PARTITION p_old FOR VALUES FROM (...) TO (...)
+```
+
 ```sql
--- === Step 1: Create partitioned heap table (Hot data) ===
--- === Step 1: パーティション付きヒープテーブル作成（ホットデータ） ===
-CREATE TABLE lake_demo.metrics (
-    ts   TIMESTAMPTZ NOT NULL,
-    host TEXT,
-    cpu  DOUBLE PRECISION,
-    mem  DOUBLE PRECISION
+-- ========================================================
+-- Step 1: 親テーブル + pg_partman による日次パーティション
+-- ========================================================
+CREATE SCHEMA IF NOT EXISTS iot;
+
+CREATE TABLE iot.sensor_data (
+    ts        TIMESTAMPTZ NOT NULL,
+    device_id INT         NOT NULL,
+    temp      DOUBLE PRECISION,
+    humidity  DOUBLE PRECISION,
+    pressure  DOUBLE PRECISION
 ) PARTITION BY RANGE (ts);
 
--- Create partitions with pg_partman / pg_partman でパーティション作成
+-- pg_partman: 日次パーティションを自動管理
 SELECT partman.create_parent(
-    p_parent_table := 'lake_demo.metrics',
-    p_control := 'ts',
-    p_interval := 'daily'
+    p_parent_table := 'iot.sensor_data',
+    p_control      := 'ts',
+    p_interval     := 'daily',
+    p_premake      := 3          -- 3日先まで事前作成
 );
 
--- === Step 2: Create Iceberg archive table (Cold data on S3) ===
--- === Step 2: Iceberg アーカイブテーブル作成（S3 上のコールドデータ） ===
-CREATE TABLE lake_demo.metrics_archive (
-    ts   TIMESTAMPTZ NOT NULL,
-    host TEXT,
-    cpu  DOUBLE PRECISION,
-    mem  DOUBLE PRECISION
+-- retention 設定（後で FDW に切り替えるため、ここでは自動 DROP しない）
+UPDATE partman.part_config
+SET retention          = NULL,   -- 自動 DROP は使わない（手動で FDW に切り替える）
+    retention_keep_table = TRUE
+WHERE parent_table = 'iot.sensor_data';
+
+-- ========================================================
+-- Step 2: Iceberg アーカイブテーブル（pg_incremental の同期先）
+-- ========================================================
+CREATE TABLE iot.sensor_archive (
+    ts        TIMESTAMPTZ NOT NULL,
+    device_id INT         NOT NULL,
+    temp      DOUBLE PRECISION,
+    humidity  DOUBLE PRECISION,
+    pressure  DOUBLE PRECISION
 ) USING iceberg
   WITH (partition_by = 'day(ts)');
 
--- === Step 3: Archive old partitions to Iceberg ===
--- === Step 3: 古いパーティションを Iceberg にアーカイブ ===
-INSERT INTO lake_demo.metrics_archive
-SELECT * FROM lake_demo.metrics
-WHERE ts < now() - interval '7 days';
+-- ========================================================
+-- Step 3: pg_incremental で毎分 Iceberg に差分追記
+-- ========================================================
+-- pg_incremental は pg_cron ベースの差分処理フレームワーク
+-- シーケンスパイプライン or 時間間隔パイプラインで差分を追跡
 
--- Drop archived heap partitions / アーカイブ済みヒープパーティションを削除
--- (pg_partman retention handles this automatically)
--- (pg_partman の retention 設定で自動化可能)
+-- 時間間隔パイプラインの例（1分間隔）
+SELECT incremental.create_pipeline(
+    pipeline_name := 'iot_to_iceberg',
+    query         := $$
+        INSERT INTO iot.sensor_archive (ts, device_id, temp, humidity, pressure)
+        SELECT ts, device_id, temp, humidity, pressure
+        FROM iot.sensor_data
+        WHERE ts >= $1 AND ts < $2
+    $$,
+    interval      := '1 minute'::interval
+);
 
--- === Step 4: Query across hot + cold ===
--- === Step 4: ホット + コールドを横断クエリ ===
-SELECT date_trunc('day', ts) AS day,
-       avg(cpu)::numeric(5,2) AS avg_cpu
-FROM (
-    SELECT ts, cpu FROM lake_demo.metrics          -- hot (heap)
-    UNION ALL
-    SELECT ts, cpu FROM lake_demo.metrics_archive  -- cold (iceberg/S3)
-) combined
+-- パイプラインの状態確認
+SELECT * FROM incremental.pipelines;
+
+-- ========================================================
+-- Step 4: サンプルデータ投入（過去14日分の IoT データ）
+-- ========================================================
+INSERT INTO iot.sensor_data (ts, device_id, temp, humidity, pressure)
+SELECT
+    now() - (random() * interval '14 days'),
+    (random() * 100)::int,
+    20.0 + random() * 15.0,            -- 20~35°C
+    40.0 + random() * 40.0,            -- 40~80%
+    1000.0 + (random() - 0.5) * 50.0   -- 975~1025 hPa
+FROM generate_series(1, 100000) AS s(i);
+
+-- pg_incremental を手動実行（デモ用。本番では pg_cron が自動実行）
+CALL incremental.execute_pipeline('iot_to_iceberg');
+
+-- Iceberg 側にデータが同期されたことを確認
+SELECT date_trunc('day', ts) AS day, count(*) AS rows
+FROM iot.sensor_archive
 GROUP BY 1 ORDER BY 1;
+
+-- ========================================================
+-- Step 5: 8日前のパーティションを FDW に切り替え
+-- ========================================================
+-- 切り替え対象日を算出
+DO $$
+DECLARE
+    target_date DATE := current_date - 8;
+    part_name   TEXT := 'iot.sensor_data_p' || to_char(target_date, 'YYYY_MM_DD');
+    fdw_name    TEXT := 'iot.sensor_cold_p' || to_char(target_date, 'YYYY_MM_DD');
+    s3_path     TEXT := 's3://bucket/iot/sensor_archive/day=' || target_date || '/';
+    range_start TIMESTAMPTZ := target_date::timestamptz;
+    range_end   TIMESTAMPTZ := (target_date + 1)::timestamptz;
+BEGIN
+    -- ① Detach the heap partition
+    EXECUTE format('ALTER TABLE iot.sensor_data DETACH PARTITION %I', part_name);
+
+    -- ② Drop the heap partition (data already in S3 Iceberg)
+    EXECUTE format('DROP TABLE IF EXISTS %I', part_name);
+
+    -- ③ Create foreign table pointing to S3 Iceberg data
+    EXECUTE format(
+        'CREATE FOREIGN TABLE %I (
+            ts        TIMESTAMPTZ NOT NULL,
+            device_id INT         NOT NULL,
+            temp      DOUBLE PRECISION,
+            humidity  DOUBLE PRECISION,
+            pressure  DOUBLE PRECISION
+        ) SERVER pg_lake_server OPTIONS (path %L)',
+        fdw_name, s3_path
+    );
+
+    -- ④ Attach as partition
+    EXECUTE format(
+        'ALTER TABLE iot.sensor_data ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',
+        fdw_name, range_start, range_end
+    );
+
+    RAISE NOTICE 'Switched % from heap to FDW (S3: %)', part_name, s3_path;
+END $$;
+
+-- ========================================================
+-- Step 6: パーティションプルーニングの確認
+-- ========================================================
+-- 直近2日のクエリ → Cold パーティション（FDW）はスキャンされない
+EXPLAIN (COSTS OFF)
+SELECT avg(temp), avg(humidity)
+FROM iot.sensor_data
+WHERE ts >= now() - interval '2 days';
+
+-- 期待される実行計画:
+-- Append
+--   → Seq Scan on sensor_data_p2026_03_22   ← heap（スキャン）
+--   → Seq Scan on sensor_data_p2026_03_21   ← heap（スキャン）
+--   → Foreign Scan on sensor_cold_p2026_03_14 ... (never executed)  ← プルーニング!
+
+-- 全期間クエリも単一テーブルとして透過的にアクセス
+SELECT date_trunc('day', ts) AS day,
+       avg(temp)::numeric(5,2)     AS avg_temp,
+       avg(humidity)::numeric(5,2) AS avg_hum,
+       count(*)                    AS rows
+FROM iot.sensor_data   -- ← 単一テーブル名で hot + cold を横断
+GROUP BY 1 ORDER BY 1;
+
+-- ========================================================
+-- Step 7: 過去データの修正（稀な UPDATE/DELETE）
+-- ========================================================
+-- FDW パーティション経由の書き込み可否は pg_lake_table FDW の実装に依存。
+-- 確実に対応するには Iceberg アーカイブテーブルを直接操作:
+UPDATE iot.sensor_archive
+SET temp = 25.0
+WHERE device_id = 42 AND ts = '2026-03-14 10:00:00+09';
+
+-- ========================================================
+-- 自動化: pg_cron で Day 8 切り替えをスケジュール
+-- ========================================================
+-- 本番では以下のように pg_cron で毎日実行:
+-- SELECT cron.schedule('partition_to_fdw', '0 2 * * *',
+--     $$SELECT iot.switch_partition_to_fdw(current_date - 8)$$);
+-- （switch_partition_to_fdw は Step 5 の DO ブロックを関数化したもの）
 ```
 
 **Snowflake から READ する手順（情報パネルで表示）:**
 ```sql
 -- === On Snowflake side: Read Iceberg table from S3 ===
 -- === Snowflake 側: S3 上の Iceberg テーブルを読み取り ===
-CREATE OR REPLACE ICEBERG TABLE analytics.metrics_from_pg
-    CATALOG = 'SNOWFLAKE'
-    EXTERNAL_VOLUME = 'pg_lake_s3_vol'
-    BASE_LOCATION = 's3://bucket/lake_demo/metrics_archive/'
-    CATALOG_TABLE_NAME = 'metrics_archive';
 
--- Query in Snowflake / Snowflake でクエリ
-SELECT * FROM analytics.metrics_from_pg
-WHERE ts >= '2026-03-01';
+-- 1. External Volume の作成
+CREATE OR REPLACE EXTERNAL VOLUME pg_lake_vol
+    STORAGE_LOCATIONS = (
+        (
+            NAME = 'pg_lake_s3'
+            STORAGE_BASE_URL = 's3://bucket/iot/'
+            STORAGE_PROVIDER = 'S3'
+            STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::123456789012:role/pg-lake-access'
+        )
+    );
+
+-- 2. Catalog Integration の作成
+CREATE OR REPLACE CATALOG INTEGRATION pg_lake_catalog
+    CATALOG_SOURCE = OBJECT_STORE
+    TABLE_FORMAT = ICEBERG
+    ENABLED = TRUE;
+
+-- 3. Iceberg テーブル登録（pg_incremental が毎分同期した最新データを含む）
+CREATE OR REPLACE ICEBERG TABLE analytics.sensor_from_pg
+    EXTERNAL_VOLUME = 'pg_lake_vol'
+    CATALOG = 'pg_lake_catalog'
+    METADATA_FILE_PATH = 'sensor_archive/metadata/v1.metadata.json';
+
+-- 4. クエリ（1分鮮度のデータが参照可能）
+SELECT date_trunc('hour', ts) AS hour,
+       avg(temp) AS avg_temp,
+       count(*) AS readings
+FROM analytics.sensor_from_pg
+GROUP BY 1 ORDER BY 1;
+
+-- 5. メタデータ更新（新しいスナップショットを認識させる）
+ALTER ICEBERG TABLE analytics.sensor_from_pg REFRESH;
 ```
+
+**FDW パーティションの利点（UNION ALL ビュー比較）:**
+| 観点 | FDW パーティション | UNION ALL ビュー |
+|------|-------------------|-----------------|
+| パーティションプルーニング | ✅ 実行計画レベルで保証 | ⚠️ プランナ依存、保証なし |
+| クエリ透過性 | ✅ `SELECT * FROM sensor_data` のみ | ❌ ビュー名を使う必要 |
+| INSERT routing | ✅ 親テーブルに INSERT → heap に自動ルーティング | ❌ アプリが宛先を意識 |
+| pg_partman 統合 | ✅ パーティション情報を pg_partman が認識 | ❌ 手動管理 |
+| 書き込み（Cold） | ⚠️ FDW の書き込み対応に依存 | ✅ Iceberg テーブル直接操作 |
+
+**未検証事項（実装時に確認）:**
+1. `pg_lake_server` に対する FDW foreign table が `ATTACH PARTITION` に対応するか
+2. FDW パーティションの `OPTIONS (path)` に Iceberg メタデータパスを指定できるか、Parquet 直指定が必要か
+3. pg_incremental の `create_pipeline` API のパラメータ仕様（$1, $2 が正確に何を示すか）
+4. FDW パーティション経由の UPDATE/DELETE 可否
 
 ---
 
@@ -275,13 +468,19 @@ Snowflake 公式エンジニアリングブログ記事:
 "Building a High-Performance Postgres Time Series Stack with Iceberg"
 
 推奨構成:
-- **pg_partman**: パーティション管理（作成・保持期間・自動 DROP）
-- **pg_incremental**: 継続的 Iceberg 同期（約1分間隔で差分追記）
-- **pg_lake**: Iceberg テーブル・S3 書き出し
+- **pg_partman**: パーティション管理（日次パーティション作成・事前作成・ライフサイクル）
+- **pg_incremental**: 継続的 Iceberg 同期（約1分間隔で差分追記、pg_cron ベース）
+- **pg_lake**: Iceberg テーブル作成・S3 書き出し + FDW での S3 読み取り
 
-`pg_incremental` は pg_cron ベースの差分処理フレームワーク。
-Demo 4 では簡略化して手動アーカイブとするが、
-pg_incremental の存在と自動化の可能性を情報パネルで言及する。
+`pg_incremental` のパイプラインタイプ:
+- **シーケンスパイプライン**: 数値 ID レンジで差分追跡
+- **時間間隔パイプライン**: 時間レンジ（$1=開始、$2=終了）で差分追跡 → IoT に最適
+- **ファイルリストパイプライン**: S3 上の新規ファイル検出
+
+exactly-once セマンティクス: 進捗追跡とコマンド実行が同一トランザクション内で行われる。
+
+Demo 4 では pg_incremental を使った自動同期を実装し、
+手動実行（CALL incremental.execute_pipeline）でデモ中の即時確認も可能にする。
 
 ---
 
