@@ -331,12 +331,110 @@ TRANSLATIONS = {
         "en": '<strong>Currently unavailable:</strong> pg_lake requires <code>pg_extension_base</code> in <code>shared_preload_libraries</code>, which is not yet configured in the current Snowflake Postgres environment. Waiting for Snowflake support.',
         "ja": '<strong>現在利用不可:</strong> pg_lake は <code>pg_extension_base</code> が <code>shared_preload_libraries</code> に登録されている必要がありますが、現在の Snowflake Postgres 環境ではまだ設定されていません。Snowflake 側の対応待ちです。',
     },
+    "lake.status_ready": {
+        "en": "pg_lake is installed and ready.",
+        "ja": "pg_lake はインストール済みで利用可能です。",
+    },
     "lake.overview": {"en": "Overview", "ja": "概要"},
     "lake.sql_samples": {
         "en": "SQL Samples (available in the future)",
         "ja": "SQL サンプル（将来利用可能）",
     },
     "lake.extensions": {"en": "Extension List", "ja": "エクステンション一覧"},
+
+    # ── pg_lake Demo 1 ──
+    "lake.demo1.title": {
+        "en": "Demo 1: Iceberg Table Basics",
+        "ja": "Demo 1: Iceberg テーブルの基本操作",
+    },
+    "lake.demo1.desc": {
+        "en": "Create an Iceberg table with time partitioning, INSERT sample data, and run aggregate queries. Click <strong>Setup</strong> to install pg_lake and create demo tables.",
+        "ja": "時系列パーティション付き Iceberg テーブルを作成し、サンプルデータを INSERT して集計クエリを実行します。<strong>Setup</strong> をクリックして pg_lake のインストールとデモテーブルを作成してください。",
+    },
+    "lake.demo1.query_title": {
+        "en": "Aggregate Query with Partition Pruning",
+        "ja": "パーティションプルーニング付き集計クエリ",
+    },
+
+    # ── pg_lake Demo 2 ──
+    "lake.demo2.title": {
+        "en": "Demo 2: COPY TO/FROM — S3 Export/Import",
+        "ja": "Demo 2: COPY TO/FROM — S3 エクスポート・インポート",
+    },
+    "lake.demo2.desc": {
+        "en": "Export PostgreSQL tables to S3 as Parquet and import them back. This is the simplest way to move data between Postgres and the data lake.",
+        "ja": "PostgreSQL テーブルを S3 に Parquet 形式でエクスポートし、読み戻します。Postgres とデータレイク間のデータ移動の最もシンプルな方法です。",
+    },
+    "lake.demo2.s3_note": {
+        "en": "<strong>Note:</strong> S3 bucket configuration is required. Replace <code>s3://your-bucket/</code> with your actual S3 path. In Snowflake Postgres, EAI network rules must allow S3 access.",
+        "ja": "<strong>注意:</strong> S3 バケットの設定が必要です。<code>s3://your-bucket/</code> を実際の S3 パスに置き換えてください。Snowflake Postgres では EAI ネットワークルールで S3 アクセスを許可する必要があります。",
+    },
+    "lake.demo2.export_title": {
+        "en": "Export to S3",
+        "ja": "S3 へのエクスポート",
+    },
+    "lake.demo2.import_title": {
+        "en": "Import from S3",
+        "ja": "S3 からのインポート",
+    },
+
+    # ── pg_lake Demo 3 ──
+    "lake.demo3.title": {
+        "en": "Demo 3: Foreign Table — Query S3 Directly",
+        "ja": "Demo 3: Foreign Table — S3 を直接クエリ",
+    },
+    "lake.demo3.desc": {
+        "en": "Query Parquet files on S3 directly via Foreign Tables without copying data into PostgreSQL.",
+        "ja": "データを PostgreSQL にコピーせずに、Foreign Table 経由で S3 上の Parquet ファイルを直接クエリします。",
+    },
+
+    # ── pg_lake Demo 4 ──
+    "lake.demo4.title": {
+        "en": "Demo 4: IoT Hot/Cold Partition Lifecycle",
+        "ja": "Demo 4: IoT Hot/Cold パーティションライフサイクル",
+    },
+    "lake.demo4.desc": {
+        "en": "Experience the full lifecycle of IoT time-series data: Hot partitions (local heap) for recent data, Cold partitions (S3 Iceberg via FDW) for historical data. Uses <code>pg_partman</code> + <code>pg_incremental</code> + <code>pg_lake</code>.",
+        "ja": "IoT 時系列データのフルライフサイクルを体験します。直近データは Hot パーティション（ローカル heap）、過去データは Cold パーティション（S3 Iceberg FDW 経由）。<code>pg_partman</code> + <code>pg_incremental</code> + <code>pg_lake</code> を使用します。",
+    },
+    "lake.demo4.arch_note": {
+        "en": "Recommended stack from <a href=\"https://www.snowflake.com/en/engineering-blog/postgres-time-series-iceberg/\" target=\"_blank\">Snowflake Engineering Blog</a>: pg_partman + pg_incremental + pg_lake for high-performance time-series with Iceberg.",
+        "ja": "<a href=\"https://www.snowflake.com/en/engineering-blog/postgres-time-series-iceberg/\" target=\"_blank\">Snowflake Engineering Blog</a> 推奨スタック: pg_partman + pg_incremental + pg_lake による高性能時系列 + Iceberg 構成。",
+    },
+    "lake.demo4.arch_diagram": {
+        "en": "iot.sensor_data (PARTITION BY RANGE(ts))\n  ├── p_today      (heap)    ← active writes\n  ├── p_yesterday  (heap)    ← recent\n  ├── ...          (heap)    ← hot (7 days)\n  │       ↓ pg_incremental (every minute)\n  │       ↓ INSERT INTO iceberg_archive\n  ├── p_day_8     (FDW → S3 Iceberg)  ← cold\n  └── p_day_9     (FDW → S3 Iceberg)\n\nSnowflake → S3 Iceberg READ (1-min freshness)",
+        "ja": "iot.sensor_data (PARTITION BY RANGE(ts))\n  ├── p_今日       (heap)    ← アクティブ書き込み\n  ├── p_昨日       (heap)    ← 直近\n  ├── ...          (heap)    ← Hot（7日間）\n  │       ↓ pg_incremental（毎分）\n  │       ↓ INSERT INTO iceberg_archive\n  ├── p_8日前     (FDW → S3 Iceberg)  ← Cold\n  └── p_9日前     (FDW → S3 Iceberg)\n\nSnowflake → S3 Iceberg を READ（1分鮮度）",
+    },
+    "lake.demo4.step1": {
+        "en": "Create partitioned table + pg_partman setup",
+        "ja": "パーティションテーブル作成 + pg_partman 設定",
+    },
+    "lake.demo4.step2": {
+        "en": "Create Iceberg archive table",
+        "ja": "Iceberg アーカイブテーブル作成",
+    },
+    "lake.demo4.step3": {
+        "en": "Insert 100K sample IoT rows (14 days)",
+        "ja": "サンプル IoT データ 100K 行を INSERT（14日分）",
+    },
+    "lake.demo4.step4": {
+        "en": "Verify data distribution by day",
+        "ja": "日別データ分布を確認",
+    },
+    "lake.demo4.step5": {
+        "en": "Partition pruning verification",
+        "ja": "パーティションプルーニングの確認",
+    },
+
+    # ── pg_lake Snowflake Reference ──
+    "lake.sf_ref.title": {
+        "en": "Snowflake Integration Reference",
+        "ja": "Snowflake 連携リファレンス",
+    },
+    "lake.sf_ref.desc": {
+        "en": "SQL reference for reading Iceberg tables from Snowflake. Run these commands on the <strong>Snowflake side</strong> (not in this app) to set up External Volumes, Catalog Integration, and Iceberg Table access.",
+        "ja": "Snowflake から Iceberg テーブルを読み取るための SQL リファレンスです。これらのコマンドは<strong>Snowflake 側</strong>（このアプリ内ではなく）で実行し、External Volume、Catalog Integration、Iceberg テーブルアクセスを設定します。",
+    },
 
     # ── Scripts & Scenarios ──
     "scripts.title": {"en": "Scripts & Scenarios", "ja": "Scripts & Scenarios"},

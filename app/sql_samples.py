@@ -78,6 +78,34 @@ _SAMPLES = [
         "description": "List all installed PostgreSQL extensions.",
         "sql": "SELECT extname, extversion, extnamespace::regnamespace AS schema\nFROM pg_extension\nORDER BY extname;",
     },
+    {
+        "id": "lake_iceberg_create",
+        "category": "pg_lake",
+        "title": "Create Iceberg table",
+        "description": "Create an Iceberg table with day partitioning.",
+        "sql": "CREATE TABLE lake_demo.access_logs (\n    log_time   TIMESTAMPTZ NOT NULL DEFAULT now(),\n    user_id    INT,\n    action     TEXT,\n    path       TEXT,\n    status     INT,\n    response_ms DOUBLE PRECISION\n) USING iceberg\n  WITH (partition_by = 'day(log_time)');",
+    },
+    {
+        "id": "lake_copy_export",
+        "category": "pg_lake",
+        "title": "COPY TO S3 (Parquet)",
+        "description": "Export a table to S3 as Parquet.",
+        "sql": "-- Replace s3://your-bucket/ with your actual S3 path\nCOPY lake_demo.access_logs\n  TO 's3://your-bucket/demo/access_logs.parquet';",
+    },
+    {
+        "id": "lake_foreign_table",
+        "category": "pg_lake",
+        "title": "Foreign Table (S3 Parquet)",
+        "description": "Query S3 Parquet files directly without copying data.",
+        "sql": "CREATE FOREIGN TABLE lake_demo.s3_logs ()\n    SERVER pg_lake\n    OPTIONS (path 's3://your-bucket/demo/access_logs.parquet');\n\nSELECT action, count(*) AS cnt,\n       avg(response_ms)::numeric(10,2) AS avg_ms\nFROM lake_demo.s3_logs\nGROUP BY action ORDER BY cnt DESC;",
+    },
+    {
+        "id": "lake_iot_partition",
+        "category": "pg_lake",
+        "title": "IoT Hot/Cold partitioning",
+        "description": "Time-series partitioned table for IoT sensor data with pg_partman.",
+        "sql": "CREATE TABLE iot.sensor_data (\n    ts        TIMESTAMPTZ NOT NULL,\n    device_id INT         NOT NULL,\n    temp      DOUBLE PRECISION,\n    humidity  DOUBLE PRECISION,\n    pressure  DOUBLE PRECISION\n) PARTITION BY RANGE (ts);\n\n-- pg_partman: auto-manage daily partitions\nSELECT partman.create_parent(\n    p_parent_table := 'iot.sensor_data',\n    p_control      := 'ts',\n    p_interval     := 'daily',\n    p_premake      := 3\n);",
+    },
 ]
 
 
