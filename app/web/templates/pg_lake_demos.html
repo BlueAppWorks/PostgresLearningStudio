@@ -26,10 +26,18 @@
         <div id="setupResult"></div>
 
         <!-- ★★★親切に書きなおす★★★
-             Setup が何をしたのか（CREATE TABLE ... USING iceberg + 10K行INSERT）を説明する。
+             Setup が何をしたのか（CREATE TABLE ... USING iceberg + 30K行INSERT）を説明する。
              「通常の CREATE TABLE と何が違うのか」「USING iceberg でデータは S3 に Parquet 形式で保存される」
              「WITH (partition_by = 'day(log_time)') で日単位の自動パーティショニングが有効になる」
              を初学者向けに解説。Setup 完了後に確認できるステップ（テーブル一覧、行数確認）を挟む。
+
+             ★★ S3 側の目視確認ポイント ★★
+             Setup 完了後、AWS Console > S3 でバケットを開くと以下のようなディレクトリ構造が確認できる：
+               s3://bucket/pg_lake/.../tables/benchmark/lake_demo/access_logs/19257/data/
+             - pg_lake が自動生成した UUID フォルダ群 = Parquet データファイル
+             - 「PostgreSQL に INSERT したデータが、実際に S3 に Parquet 形式で書き出されている」ことを目視確認
+             - Iceberg のメタデータは同階層の metadata/ フォルダに格納されている
+             この「S3 にデータが入った」ことの確認を促すUI要素（説明文 + S3パスの表示）を追加する
         -->
 
         <h6>{{ t('lake.demo1.query_title') }}</h6>
@@ -65,12 +73,19 @@ GROUP BY 1 ORDER BY 1;</code></pre>
         <div class="alert alert-secondary">{{ t('lake.demo2.s3_note') }}</div>
 
         <!-- ★★★親切に書きなおす★★★
+             Demo 1 (Iceberg) との違いを最初に明確にする：
+             - Demo 1: CREATE TABLE ... USING iceberg → pg_lake がパスを自動管理（ユーザーは意識しない）
+             - Demo 2: COPY TO/FROM → ユーザーが S3 パスを自由に指定してエクスポート/インポート
+             - COPY は Iceberg メタデータを生成しない。単純な Parquet ファイルの書き出し/読み込み
+
              「なぜ COPY なのか」を説明する：
              - PostgreSQL 標準の COPY コマンドを拡張し、S3 を直接読み書きできる
              - pg_lake が COPY の宛先として s3:// プロトコルを透過的にサポート
              - 出力形式は Parquet（列指向、圧縮効率高い、Snowflake/Spark/DuckDB で直接読める）
-             Run ボタンが無い → S3 パスを入力フィールドで受け取り、動的に SQL を生成して
-             Run ボタンで実行できるようにする。
+             - ユースケース: バックアップ、他システムへのデータ連携、一時的なデータ受け渡し
+
+             S3 パスを入力フィールドで受け取り、動的に SQL を生成して Run ボタンで実行できるようにする。
+             デフォルトのパス例: s3://bucket/pg_lake/export/access_logs.parquet
         -->
 
         <h6>{{ t('lake.demo2.export_title') }}</h6>
@@ -81,13 +96,15 @@ GROUP BY 1 ORDER BY 1;</code></pre>
              Step 3: lake_file.list() で S3 上に作成されたファイルを確認 → Run → 結果表示
              各ステップに「何が起きたか」を解説（行数、ファイルサイズ等）
         -->
-        <pre class="bg-dark text-light p-3 rounded"><code>-- Export to S3 as Parquet
-COPY lake_demo.access_logs TO 's3://your-bucket/demo/access_logs.parquet';
+        <pre class="bg-dark text-light p-3 rounded"><code>-- Export all rows to S3 as Parquet
+-- Note: Iceberg tables require COPY (SELECT ...) TO syntax
+COPY (SELECT * FROM lake_demo.access_logs)
+    TO 's3://your-bucket/export/access_logs.parquet';
 
 -- Export with filter (errors only)
 COPY (
     SELECT * FROM lake_demo.access_logs WHERE status >= 400
-) TO 's3://your-bucket/demo/errors.parquet';</code></pre>
+) TO 's3://your-bucket/export/errors.parquet';</code></pre>
 
         <h6>{{ t('lake.demo2.import_title') }}</h6>
         <!-- ★★親切に書きなおす★★
@@ -315,7 +332,7 @@ CREATE TABLE iot.sensor_data (
 SELECT partman.create_parent(
     p_parent_table := 'iot.sensor_data',
     p_control      := 'ts',
-    p_interval     := 'daily',
+    p_interval     := '1 day',
     p_premake      := 3
 );</code></pre>
         <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step1', 'demo4R1')">Run</button>

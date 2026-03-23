@@ -124,11 +124,12 @@
         <p>{{ t('lake.setup.step3.desc') }}</p>
         <ol class="small">
             <li>Open <strong>AWS Console &gt; IAM &gt; Roles &gt; Create role</strong></li>
-            <li>Trusted entity: <strong>AWS account</strong> &gt; <strong>Another AWS account</strong> (enter your own Account ID for now; updated in Step 6)</li>
+            <li>Trusted entity type: <strong>AWS account</strong> &gt; <strong>Another AWS account</strong> &gt; enter your own Account ID (temporary; replaced in Step 6 with Snowflake's ARN)</li>
             <li>Attach the policy created in Step 2</li>
             <li>Role name: <code id="roleNameDisplay"></code></li>
-            <li>{{ t('lake.setup.step3.note1') }}</li>
-            <li>{{ t('lake.setup.step3.note2') }}</li>
+            <li>Click <strong>Create role</strong></li>
+            <li>After creation: open the role &gt; scroll to <strong>Maximum session duration</strong> &gt; Edit &gt; set to <strong>12 hours</strong><br>
+                <small class="text-danger">Required by Snowflake. Default 1 hour causes long-running Iceberg operations to fail.</small></li>
         </ol>
     </div>
 </div>
@@ -284,8 +285,11 @@ function regenerateAll() {
 `-- Run as ACCOUNTADMIN in Snowflake Worksheet
 USE ROLE ACCOUNTADMIN;
 
-CREATE OR REPLACE STORAGE INTEGRATION ${integration}
-    TYPE = EXTERNAL_STAGE
+-- Drop first if re-creating (OR REPLACE not supported for POSTGRES_EXTERNAL_STORAGE)
+-- DROP STORAGE INTEGRATION IF EXISTS ${integration};
+
+CREATE STORAGE INTEGRATION IF NOT EXISTS ${integration}
+    TYPE = POSTGRES_EXTERNAL_STORAGE
     STORAGE_PROVIDER = 'S3'
     STORAGE_AWS_ROLE_ARN = '${roleArn}'
     ENABLED = TRUE
@@ -324,8 +328,7 @@ ALTER POSTGRES INSTANCE ${instance}
     // Step 9: SET location prefix
     const prefix = val('cfgLocationPrefix') || `s3://${bucket}/pg_lake/`;
     document.getElementById('setLocationSql').textContent =
-`ALTER DATABASE current_database()
-    SET pg_lake_iceberg.default_location_prefix = '${prefix}';`;
+`SET pg_lake_iceberg.default_location_prefix = '${prefix}';`;
 
     // Auto-fill location prefix placeholder
     const pfxEl = document.getElementById('cfgLocationPrefix');
@@ -362,7 +365,7 @@ function setLocationPrefix() {
     const el = document.getElementById('step9Result');
     const bucket = val('cfgBucket') || 'your-bucket';
     const prefix = val('cfgLocationPrefix') || `s3://${bucket}/pg_lake/`;
-    const sql = `ALTER DATABASE current_database() SET pg_lake_iceberg.default_location_prefix = '${prefix}'`;
+    const sql = `SET pg_lake_iceberg.default_location_prefix = '${prefix}'`;
     el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
     fetch('/pg-lake/lake-query', {
         method: 'POST',
