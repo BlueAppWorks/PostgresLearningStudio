@@ -11,7 +11,7 @@ artifacts:
   default_streamlit: app_public.setup_ui
   container_services:
     images:
-      - /POSTGRES_LEARNING_STUDIO_DB/APP_SCHEMA/POSTGRES_LEARNING_STUDIO_REPO/postgres-learning-studio:v5
+      - /POSTGRES_LEARNING_STUDIO_DB/APP_SCHEMA/POSTGRES_LEARNING_STUDIO_REPO/postgres-learning-studio:v7
 
 privileges:
   - CREATE COMPUTE POOL:
