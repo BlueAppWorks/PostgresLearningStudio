@@ -19,7 +19,7 @@
 <div class="card mb-4">
     <div class="card-header"><h6 class="mb-0">S3 Configuration</h6></div>
     <div class="card-body">
-        <p class="small text-muted mb-2">Enter your S3 bucket path. This will be used in Demo 2, 3, and 4.</p>
+        <p class="small text-muted mb-2">Enter your S3 path for COPY exports and Foreign Tables (Demo 2, 3). Demo 1's Iceberg table uses the <code>default_location_prefix</code> set in the <a href="/pg-lake/setup">Getting Started guide</a>. Demo 4 Step 6 also uses this path for the FDW partition.</p>
         <div class="row g-3">
             <div class="col-md-8">
                 <label class="form-label">S3 Export Prefix</label>
@@ -296,6 +296,24 @@ EXPLAIN SELECT * FROM sensor_data WHERE ts >= '2026-03-20';</code></pre>
         <div class="alert alert-info">{{ t('lake.demo4.arch_note') }}</div>
 
         <pre class="bg-dark text-light p-3 rounded" style="font-size:0.78rem"><code>{{ t('lake.demo4.arch_diagram') }}</code></pre>
+
+        <!-- Reset -->
+        <h6>Reset (run before starting or to redo the demo)</h6>
+        <p class="small text-muted">Drops all Demo 4 objects (schema, tables, pipelines) so you can start fresh. Safe to skip on first run.</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Reset">-- pg_incremental pipelines
+DELETE FROM incremental.time_interval_pipelines WHERE pipeline_name = 'iot_to_iceberg';
+DELETE FROM incremental.sequence_pipelines WHERE pipeline_name = 'iot_to_iceberg';
+DELETE FROM incremental.pipelines WHERE pipeline_name = 'iot_to_iceberg';
+
+-- pg_partman config
+DELETE FROM public.part_config WHERE parent_table = 'iot.sensor_data';
+DELETE FROM public.part_config_sub WHERE sub_parent = 'iot.sensor_data';
+
+-- Drop all demo schemas (CASCADE removes all objects inside)
+DROP SCHEMA IF EXISTS iot CASCADE;
+DROP SCHEMA IF EXISTS lake_demo CASCADE;</code></pre>
+        <button class="btn btn-outline-danger btn-sm mb-3" onclick="runQuery('demo4Reset', 'demo4ResetR')">Reset All Demos</button>
+        <div id="demo4ResetR"></div>
 
         <!-- Step 1 -->
         <h6>Step 1: {{ t('lake.demo4.step1') }}</h6>
