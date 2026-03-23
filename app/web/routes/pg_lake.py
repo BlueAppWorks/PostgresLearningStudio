@@ -177,6 +177,42 @@ def run_setup():
     return jsonify({"results": results})
 
 
+@pg_lake_bp.route("/redistribute-partitions", methods=["POST"])
+def redistribute_partitions():
+    """Move rows from default partition to correct daily partitions.
+    Returns progress after each batch so the frontend can animate."""
+    try:
+        with get_connection() as conn:
+            conn.autocommit = True
+            rounds = []
+            for i in range(200):  # safety limit
+                cur = conn.execute(
+                    "SELECT partition_data_time('iot.sensor_data')"
+                )
+                moved = cur.fetchone()[0]
+
+                # Get current counts
+                cur2 = conn.execute(
+                    "SELECT "
+                    "(SELECT count(*) FROM iot.sensor_data_default) AS default_rows, "
+                    "(SELECT count(*) FROM iot.sensor_data) AS total_rows"
+                )
+                row = cur2.fetchone()
+                rounds.append({
+                    "round": i + 1,
+                    "moved": moved,
+                    "default_remaining": row[0],
+                    "total": row[1],
+                })
+
+                if moved == 0 or row[0] == 0:
+                    break
+
+            return jsonify({"rounds": rounds, "done": True})
+    except Exception as e:
+        return jsonify({"error": str(e).strip()[:500]}), 500
+
+
 # ── Setup SQL generators ──
 
 

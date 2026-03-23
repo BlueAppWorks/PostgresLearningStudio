@@ -393,7 +393,7 @@ WHERE inhparent = 'iot.sensor_data'::regclass ORDER BY partition;</code></pre>
 
         <!-- Step 4 -->
         <h6>Step 4: {{ t('lake.demo4.step4_data') }}</h6>
-        <p class="small text-muted">Insert 300,000 rows spanning 60 days. pg_partman automatically routes each row to the correct daily partition based on <code>ts</code>.</p>
+        <p class="small text-muted">Insert 300,000 rows spanning 60 days. pg_partman routes rows to matching daily partitions, but since partitions only exist for recent days, most rows land in the <code>default</code> partition initially.</p>
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step4">INSERT INTO iot.sensor_data (ts, device_id, temp, humidity, pressure)
 SELECT
     now() - (random() * interval '60 days'),
@@ -402,8 +402,35 @@ SELECT
     40.0 + random() * 40.0,
     1000.0 + (random() - 0.5) * 50.0
 FROM generate_series(1, 300000) AS s(i);</code></pre>
-        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step4', 'demo4R4')">Run</button>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step4', 'demo4R4')">Run INSERT</button>
         <div id="demo4R4"></div>
+
+        <h6>Step 4b: Redistribute to daily partitions</h6>
+        <p class="small text-muted">
+            <code>partition_data_time()</code> creates missing daily partitions and moves rows from <code>default</code> to the correct partition.
+            Watch the rows flow from default into 60 daily partitions:
+        </p>
+        <div class="card bg-dark text-light p-3 mb-3">
+            <div class="row text-center mb-2">
+                <div class="col-5">
+                    <div class="small text-muted">default partition</div>
+                    <div id="redistDefault" class="display-6 text-warning">—</div>
+                </div>
+                <div class="col-2 d-flex align-items-center justify-content-center">
+                    <span id="redistArrow" class="text-muted" style="font-size:2rem">→</span>
+                </div>
+                <div class="col-5">
+                    <div class="small text-muted">daily partitions</div>
+                    <div id="redistDaily" class="display-6 text-success">—</div>
+                </div>
+            </div>
+            <div class="progress mb-2" style="height: 24px;">
+                <div id="redistBar" class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%">0%</div>
+            </div>
+            <div id="redistStatus" class="small text-muted text-center">Click the button to start redistribution</div>
+        </div>
+        <button class="btn btn-primary btn-sm mb-3" id="redistBtn" onclick="runRedistribute()">Redistribute Rows</button>
+        <div id="demo4R4b"></div>
 
         <!-- Step 5 -->
         <h6>Step 5: {{ t('lake.demo4.step5_sync') }}</h6>
@@ -610,6 +637,86 @@ function runExplain(sqlElId, resultElId) {
         }
     })
     .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+async function runRedistribute() {
+    const btn = document.getElementById('redistBtn');
+    const defEl = document.getElementById('redistDefault');
+    const dailyEl = document.getElementById('redistDaily');
+    const bar = document.getElementById('redistBar');
+    const arrow = document.getElementById('redistArrow');
+    const status = document.getElementById('redistStatus');
+    const resultEl = document.getElementById('demo4R4b');
+
+    btn.disabled = true;
+    status.textContent = 'Getting initial counts...';
+
+    // Get initial count
+    try {
+        const initResp = await fetch('/pg-lake/lake-query', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({sql: "SELECT (SELECT count(*) FROM iot.sensor_data_default) AS def, (SELECT count(*) FROM iot.sensor_data) AS total"})
+        });
+        const initData = await initResp.json();
+        if (initData.rows && initData.rows[0]) {
+            const initDefault = parseInt(initData.rows[0][0]);
+            const initTotal = parseInt(initData.rows[0][1]);
+            defEl.textContent = initDefault.toLocaleString();
+            dailyEl.textContent = (initTotal - initDefault).toLocaleString();
+        }
+    } catch(e) {}
+
+    status.textContent = 'Redistributing...';
+    arrow.textContent = '→→→';
+    arrow.classList.remove('text-muted');
+    arrow.classList.add('text-info');
+
+    try {
+        const resp = await fetch('/pg-lake/redistribute-partitions', {method: 'POST'});
+        const data = await resp.json();
+
+        if (data.error) {
+            resultEl.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            btn.disabled = false;
+            return;
+        }
+
+        // Animate through the rounds
+        const rounds = data.rounds;
+        const totalRows = rounds[0]?.total || 300000;
+
+        for (let i = 0; i < rounds.length; i++) {
+            const r = rounds[i];
+            const remaining = r.default_remaining;
+            const inPartitions = r.total - remaining;
+            const pct = Math.round((inPartitions / r.total) * 100);
+
+            defEl.textContent = remaining.toLocaleString();
+            dailyEl.textContent = inPartitions.toLocaleString();
+            bar.style.width = pct + '%';
+            bar.textContent = pct + '%';
+            status.textContent = `Round ${r.round}: moved ${r.moved} rows`;
+
+            // Animate with delay
+            await new Promise(resolve => setTimeout(resolve, 80));
+        }
+
+        const last = rounds[rounds.length - 1];
+        arrow.textContent = '✓';
+        arrow.classList.remove('text-info');
+        arrow.classList.add('text-success');
+        bar.style.width = '100%';
+        bar.textContent = '100%';
+        status.textContent = `Done! ${rounds.length} rounds, all rows in daily partitions.`;
+        defEl.textContent = '0';
+        dailyEl.textContent = last.total.toLocaleString();
+
+        resultEl.innerHTML = `<div class="alert alert-success">Redistribution complete: ${rounds.length} rounds, ${last.total.toLocaleString()} rows in daily partitions.</div>`;
+    } catch(e) {
+        resultEl.innerHTML = `<div class="alert alert-danger">${e}</div>`;
+    }
+    btn.disabled = false;
 }
 
 // Generate dynamic SQL for Demo 2, 3, 4 Step 6 based on S3 prefix
