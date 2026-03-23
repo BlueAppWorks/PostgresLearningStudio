@@ -140,14 +140,36 @@ step1_done = bool(pool_name)
 # Step 2: Database configured
 step2_done = db_configured == "true"
 
-# Step 3: EAI approved — check via SYSTEM$GET_ALL_REFERENCES
+# Step 3: EAI approved — verify reference is actually bound and valid
 step3_done = False
+eai_stale = False
 try:
     ref_result = session.sql(
         f"SELECT SYSTEM$GET_ALL_REFERENCES('{EAI_REF_NAME}')"
     ).collect()[0][0]
     if ref_result and ref_result.strip() not in ("", "[]"):
-        step3_done = True
+        # Reference appears bound — verify it is actually valid by checking
+        # that the reference can resolve. After DROP/CREATE APPLICATION,
+        # stale references may still appear in SYSTEM$GET_ALL_REFERENCES
+        # but fail at service creation time.
+        try:
+            import json
+            refs = json.loads(ref_result)
+            if isinstance(refs, list) and len(refs) > 0:
+                # Check if the referenced EAI actually exists by trying
+                # to use it in a configuration callback
+                eai_check = session.sql(
+                    f"CALL app_setup.get_eai_configuration('{EAI_REF_NAME}')"
+                ).collect()[0][0]
+                if eai_check and '"host_ports"' in eai_check and '"placeholder"' not in eai_check:
+                    step3_done = True
+                else:
+                    eai_stale = True
+            else:
+                eai_stale = True
+        except Exception:
+            # If the callback fails, the reference is likely stale
+            eai_stale = True
 except Exception:
     pass
 
@@ -511,12 +533,41 @@ elif selected_page == "Setup":
                 _done_badge(f"EAI Approved — {RESOURCE_TYPE_LABEL} access enabled"),
                 unsafe_allow_html=True,
             )
-        else:
-            st.warning(
-                f"**EAI approval is required** before the service can connect to "
-                f"{RESOURCE_TYPE_LABEL}.\n\n"
-                "The service will **fail to start** without this approval."
+        elif eai_stale:
+            st.error(
+                "**EAI reference appears stale.** The previous approval may no longer be valid "
+                "(this can happen after the application is reinstalled).\n\n"
+                "**Please re-approve the EAI** by following the steps below."
             )
+
+            db_host_display = get_setting("pg_host", "your-database-host")
+            db_port_display = get_setting("pg_port", DEFAULT_DB_PORT)
+
+            st.markdown(
+                "**How to re-approve:**\n\n"
+                f"1. Open **Snowsight** and navigate to **Data Products → Apps → {APP_NAME}**\n"
+                "2. In the app detail page, click the **Security** tab "
+                "(look for the shield icon or the ⋮ menu → Manage Access)\n"
+                f"3. Find **\"{EAI_DISPLAY_LABEL}\"** listed under **External Access**\n"
+                "4. If it shows as \"Approved\" from a previous installation, "
+                "click **Review** to verify the connection details:\n"
+                f"   - Allowed host: `{db_host_display}:{db_port_display}`\n"
+                "5. Click **Approve** (or re-approve) to activate the integration\n"
+                "6. Return to this Setup page and click **Check EAI Status** below"
+            )
+
+            st.info(
+                "💡 **Tip:** The Security tab can be hard to find. "
+                "In Snowsight, go to **Data Products → Apps**, click your app name, "
+                "then look for **Security** in the top tab bar or under the ⋮ menu."
+            )
+        if not step3_done and (step1_done and step2_done):
+            if not eai_stale:
+                st.warning(
+                    f"**EAI approval is required** before the service can connect to "
+                    f"{RESOURCE_TYPE_LABEL}.\n\n"
+                    "The service will **fail to start** without this approval."
+                )
             st.markdown(
                 "**What is EAI?**\n\n"
                 "External Access Integration (EAI) is a Snowflake security control that "
@@ -528,20 +579,29 @@ elif selected_page == "Setup":
             db_port_display = get_setting("pg_port", DEFAULT_DB_PORT)
 
             st.markdown(
-                "**How to approve:**\n\n"
-                f"1. Click the app name **{APP_NAME}** in the top navigation bar of this page\n"
-                "2. Click the **Security** tab (shield icon)\n"
-                f"3. Find **\"{EAI_DISPLAY_LABEL}\"** under External Access\n"
-                "4. Click **Review** to see the connection details:\n"
+                "**How to approve (step-by-step):**\n\n"
+                "1. Look at the **very top of this page** — you should see a navigation bar "
+                f"with the app name **{APP_NAME}**\n"
+                "2. Click the app name to go to the **Native App detail page** in Snowsight\n"
+                "3. You will see a row of tabs: **Readme / Security / Manage Versions / ...**\n"
+                "4. Click the **Security** tab (it may show a shield icon or just say \"Security\")\n"
+                f"5. Scroll down to the **External Access** section\n"
+                f"6. Find the row labeled **\"{EAI_DISPLAY_LABEL}\"**\n"
+                "7. Click the **Review** button on that row — a panel will open showing:\n"
                 f"   - Allowed host: `{db_host_display}:{db_port_display}`\n"
-                "5. Click **Approve**\n"
-                "6. Come back to this Setup page and click **Check EAI Status** below"
+                "   - Allowed secrets\n"
+                "8. Click the **Allow** or **Approve** button (blue button at the bottom of the panel)\n"
+                "9. Return to this Setup page (use the browser back button or navigate to the app)\n"
+                "10. Click **Check EAI Status** below to verify"
             )
 
             st.info(
-                "**Tip:** The Security tab is in Snowsight's Native App detail page, "
-                "not inside this Streamlit app. Look for the tab bar at the top that shows "
-                "the app name."
+                "**Can't find the Security tab?**\n\n"
+                "The Security tab is on the **Snowsight Native App management page**, "
+                "not inside this Streamlit UI. "
+                "If you are viewing the Streamlit app in full screen, "
+                "look for a small bar at the very top with the app name — click it to navigate "
+                "to the management page where the Security tab is visible."
             )
 
             if st.button("Check EAI Status", type="primary", key="check_eai"):

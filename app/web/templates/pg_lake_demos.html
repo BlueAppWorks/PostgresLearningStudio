@@ -319,7 +319,11 @@ EXPLAIN SELECT * FROM sensor_data WHERE ts >= '2026-03-20';</code></pre>
              Run 後に「SELECT * FROM pg_catalog.pg_inherits ...」などで
              作成されたパーティション一覧を確認するステップを追加
         -->
-        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step1">CREATE SCHEMA IF NOT EXISTS iot;
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step1">-- Install required extensions
+CREATE EXTENSION IF NOT EXISTS pg_partman CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_incremental CASCADE;
+
+CREATE SCHEMA IF NOT EXISTS iot;
 
 CREATE TABLE iot.sensor_data (
     ts        TIMESTAMPTZ NOT NULL,
@@ -329,7 +333,7 @@ CREATE TABLE iot.sensor_data (
     pressure  DOUBLE PRECISION
 ) PARTITION BY RANGE (ts);
 
-SELECT partman.create_parent(
+SELECT create_parent(
     p_parent_table := 'iot.sensor_data',
     p_control      := 'ts',
     p_interval     := '1 day',
@@ -366,20 +370,24 @@ SELECT partman.create_parent(
              - exactly-once セマンティクス: 進捗追跡と SQL 実行が同一トランザクション → 二重処理なし
              - 本番では pg_cron が自動実行するが、デモでは CALL で手動実行できる
         -->
-        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step3">-- pg_incremental: continuous sync to Iceberg (1-minute interval)
-SELECT incremental.create_pipeline(
-    pipeline_name := 'iot_to_iceberg',
-    query         := $$
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step3">-- pg_incremental: continuous sync to Iceberg (1-day interval)
+-- schedule := NULL because pg_cron is not available in benchmark DB
+-- start_time set to 60 days ago to cover all sample data
+SELECT incremental.create_time_interval_pipeline(
+    pipeline_name  := 'iot_to_iceberg',
+    time_interval  := '1 day'::interval,
+    command        := $$
         INSERT INTO iot.sensor_archive (ts, device_id, temp, humidity, pressure)
         SELECT ts, device_id, temp, humidity, pressure
         FROM iot.sensor_data
         WHERE ts >= $1 AND ts < $2
     $$,
-    interval      := '1 minute'::interval
+    schedule       := NULL,
+    start_time     := (now() - interval '60 days')::timestamptz
 );
 
 -- Check pipeline status
-SELECT * FROM incremental.pipelines;</code></pre>
+SELECT * FROM incremental.time_interval_pipelines;</code></pre>
         <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step3', 'demo4R3')">Run</button>
         <div id="demo4R3"></div>
 
