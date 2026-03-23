@@ -338,12 +338,41 @@
 
 <!-- Step 13: Verify -->
 <div class="card mb-3">
-    <div class="card-header">
+    <div class="card-header d-flex justify-content-between align-items-center">
         <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 13:</strong> Register and Query Iceberg Table</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('icebergQuerySql')">Copy</button>
     </div>
     <div class="card-body">
-        <p class="small text-muted">After completing the trust policy update, you can register and query the Iceberg table in Snowflake. Run the following in a Snowflake Worksheet. You'll need to find the correct <code>METADATA_FILE_PATH</code> — check the S3 bucket under the <code>metadata/</code> folder for the latest <code>.metadata.json</code> file.</p>
+        <p class="small text-muted">After completing the trust policy update, register the Iceberg table in Snowflake. Fill in the metadata path below — find it in <strong>AWS Console → S3 → your bucket → metadata/ folder</strong> (use the latest <code>.metadata.json</code> file).</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-8">
+                <label class="form-label">Iceberg Metadata File Path <small class="text-muted">(relative to STORAGE_BASE_URL)</small></label>
+                <input type="text" class="form-control" id="cfgMetadataPath"
+                    placeholder="frompg/tables/benchmark/iot/sensor_archive/XXXXX/metadata/00001-xxxx.metadata.json"
+                    oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Snowflake Database.Schema</label>
+                <input type="text" class="form-control" id="cfgSfSchema" value="PG_LAKE_DEMO.ANALYTICS" oninput="regenerateAll()">
+            </div>
+        </div>
+        <div class="alert alert-light border small">
+            <strong>How to find the metadata path:</strong>
+            <ol class="mb-0">
+                <li>Open <strong>AWS Console → S3</strong> → navigate to your bucket</li>
+                <li>Go to <code>pg_lake/&lt;prefix&gt;/frompg/tables/benchmark/iot/sensor_archive/</code></li>
+                <li>Inside you'll find a numbered folder (e.g. <code>19784/</code>) → open <code>metadata/</code></li>
+                <li>Copy the path of the <strong>latest</strong> (highest numbered) <code>.metadata.json</code> file</li>
+                <li>Enter only the part <strong>after</strong> the <code>STORAGE_BASE_URL</code> (after <code>pg_lake/</code>)</li>
+            </ol>
+        </div>
         <pre class="bg-dark text-light p-3 rounded" id="icebergQuerySql"></pre>
+        <div class="alert alert-info small mt-3">
+            <strong>Note on REFRESH:</strong> <code>ALTER ICEBERG TABLE ... REFRESH</code> requires specifying the new metadata path explicitly:
+            <code>ALTER ICEBERG TABLE ... REFRESH 'path/to/new/metadata.json';</code>
+            Automatic metadata tracking (AUTO_REFRESH) is not yet supported for Iceberg on Object Store catalogs.
+            This limitation may be resolved when pg_lake adds REST Catalog (Polaris) support (<a href="https://github.com/Snowflake-Labs/pg_lake/issues/94" target="_blank">Issue #94</a>).
+        </div>
     </div>
 </div>
 
@@ -502,29 +531,34 @@ DESCRIBE EXTERNAL VOLUME ${extVolume};
     }, null, 2);
 
     // Step 13: Iceberg table query
+    const metadataPath = val('cfgMetadataPath') || 'frompg/tables/benchmark/iot/sensor_archive/XXXXX/metadata/00001-xxxx.metadata.json';
+    const sfSchema = val('cfgSfSchema') || 'PG_LAKE_DEMO.ANALYTICS';
+    const sfDbParts = sfSchema.split('.');
+    const sfDb = sfDbParts[0] || 'PG_LAKE_DEMO';
+    const sfSch = sfDbParts[1] || 'ANALYTICS';
+
     document.getElementById('icebergQuerySql').textContent =
 `-- Run as ACCOUNTADMIN in Snowflake Worksheet
 USE ROLE ACCOUNTADMIN;
 
--- Create a database/schema for the Iceberg table if needed
-CREATE DATABASE IF NOT EXISTS PG_LAKE_DEMO;
-CREATE SCHEMA IF NOT EXISTS PG_LAKE_DEMO.ANALYTICS;
+-- Create database/schema if needed
+CREATE DATABASE IF NOT EXISTS ${sfDb};
+CREATE SCHEMA IF NOT EXISTS ${sfSchema};
 
--- Register the Iceberg table (check S3 metadata/ folder for the latest .metadata.json)
-CREATE OR REPLACE ICEBERG TABLE PG_LAKE_DEMO.ANALYTICS.SENSOR_FROM_PG
+-- Register the Iceberg table
+CREATE OR REPLACE ICEBERG TABLE ${sfSchema}.SENSOR_FROM_PG
     EXTERNAL_VOLUME = '${extVolume}'
     CATALOG = '${catalog}'
-    METADATA_FILE_PATH = 'frompg/tables/benchmark/iot/sensor_archive/XXXXX/metadata/vN.metadata.json';
-    -- ↑ Replace XXXXX and vN with actual values from your S3 bucket
+    METADATA_FILE_PATH = '${metadataPath}';
 
 -- Query (same data that pg_lake wrote from PostgreSQL)
 SELECT date_trunc('hour', ts) AS hour,
        avg(temp) AS avg_temp, count(*) AS readings
-FROM PG_LAKE_DEMO.ANALYTICS.SENSOR_FROM_PG
+FROM ${sfSchema}.SENSOR_FROM_PG
 GROUP BY 1 ORDER BY 1;
 
--- Refresh metadata (after new data is written by pg_lake)
-ALTER ICEBERG TABLE PG_LAKE_DEMO.ANALYTICS.SENSOR_FROM_PG REFRESH;`;
+-- Refresh metadata (specify new metadata path after pg_lake writes new data)
+-- ALTER ICEBERG TABLE ${sfSchema}.SENSOR_FROM_PG REFRESH '${metadataPath}';`;
 }
 
 function copyEl(id) {
