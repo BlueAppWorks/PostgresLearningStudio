@@ -25,6 +25,13 @@
         <p>{{ t('lake.demo1.desc') }}</p>
         <div id="setupResult"></div>
 
+        <!-- ★★★親切に書きなおす★★★
+             Setup が何をしたのか（CREATE TABLE ... USING iceberg + 10K行INSERT）を説明する。
+             「通常の CREATE TABLE と何が違うのか」「USING iceberg でデータは S3 に Parquet 形式で保存される」
+             「WITH (partition_by = 'day(log_time)') で日単位の自動パーティショニングが有効になる」
+             を初学者向けに解説。Setup 完了後に確認できるステップ（テーブル一覧、行数確認）を挟む。
+        -->
+
         <h6>{{ t('lake.demo1.query_title') }}</h6>
         <pre class="bg-dark text-light p-3 rounded"><code id="demo1Sql">SELECT date_trunc('day', log_time) AS day,
        count(*) AS requests,
@@ -37,6 +44,16 @@ GROUP BY 1 ORDER BY 1;</code></pre>
             <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo1Sql', 'demo1Result')">EXPLAIN</button>
         </div>
         <div id="demo1Result"></div>
+
+        <!-- ★★★親切に書きなおす★★★
+             EXPLAIN の結果を読むガイドを追加。
+             「Subplans Removed: N」= N 個のパーティションがプルーニングされた、
+             WHERE 句の日付範囲に該当しないパーティションはスキャンされない、
+             という partition pruning の効果を視覚的に解説。
+             さらに 1 件 INSERT → 再クエリで反映を確認するステップを追加し、
+             「Iceberg テーブルにも通常通り DML が使える」ことを体感させる。
+             UPDATE / DELETE も 1 行ずつ体験させ、Iceberg の行レベル操作を確認。
+        -->
     </div>
 </div>
 
@@ -47,7 +64,23 @@ GROUP BY 1 ORDER BY 1;</code></pre>
         <p>{{ t('lake.demo2.desc') }}</p>
         <div class="alert alert-secondary">{{ t('lake.demo2.s3_note') }}</div>
 
+        <!-- ★★★親切に書きなおす★★★
+             「なぜ COPY なのか」を説明する：
+             - PostgreSQL 標準の COPY コマンドを拡張し、S3 を直接読み書きできる
+             - pg_lake が COPY の宛先として s3:// プロトコルを透過的にサポート
+             - 出力形式は Parquet（列指向、圧縮効率高い、Snowflake/Spark/DuckDB で直接読める）
+             Run ボタンが無い → S3 パスを入力フィールドで受け取り、動的に SQL を生成して
+             Run ボタンで実行できるようにする。
+        -->
+
         <h6>{{ t('lake.demo2.export_title') }}</h6>
+        <!-- ★★親切に書きなおす★★
+             ステップを分割する：
+             Step 1: 全件エクスポート → Run → 成功確認
+             Step 2: フィルタ付きエクスポート（status >= 400）→ Run → 成功確認
+             Step 3: lake_file.list() で S3 上に作成されたファイルを確認 → Run → 結果表示
+             各ステップに「何が起きたか」を解説（行数、ファイルサイズ等）
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code>-- Export to S3 as Parquet
 COPY lake_demo.access_logs TO 's3://your-bucket/demo/access_logs.parquet';
 
@@ -57,6 +90,12 @@ COPY (
 ) TO 's3://your-bucket/demo/errors.parquet';</code></pre>
 
         <h6>{{ t('lake.demo2.import_title') }}</h6>
+        <!-- ★★親切に書きなおす★★
+             「エクスポートしたデータを別テーブルに読み戻す」ストーリーを明示。
+             Step 4: テーブル作成（LIKE で同じスキーマをコピー）→ Run
+             Step 5: COPY FROM で S3 から読み込み → Run → 件数確認
+             Step 6: 元テーブルとインポートテーブルの件数を比較して一致を確認
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code>-- Import from S3
 CREATE TABLE lake_demo.imported_errors (LIKE lake_demo.access_logs);
 COPY lake_demo.imported_errors FROM 's3://your-bucket/demo/errors.parquet';
@@ -70,6 +109,23 @@ SELECT count(*) AS imported_rows FROM lake_demo.imported_errors;</code></pre>
     <div class="card-header"><h5 class="mb-0">{{ t('lake.demo3.title') }}</h5></div>
     <div class="card-body">
         <p>{{ t('lake.demo3.desc') }}</p>
+
+        <!-- ★★★親切に書きなおす★★★
+             Foreign Table の概念を解説する：
+             - データを PostgreSQL にコピーせず、S3 上のファイルを「仮想テーブル」として参照
+             - pg_lake が内部で DuckDB エンジンを使い、Parquet を列指向で高速スキャン
+             - PostgreSQL の Foreign Data Wrapper（FDW）機構を利用
+             - Demo 2 でエクスポートしたファイルを使うため、Demo 2 → Demo 3 の流れを明示
+
+             ステップ分割：
+             Step 1: Foreign Table 作成（空のカラム定義 → pg_lake が自動推論）→ Run → 成功確認
+             Step 2: Foreign Table をクエリ → Run → 結果表示
+             Step 3: ローカルテーブル（access_logs）と Foreign Table の JOIN → Run → 結果表示
+                     「同じ SQL で S3 のデータとローカルデータを結合できる」ことを実感させる
+             Step 4: lake_file.list() で S3 ファイル一覧 → Run → 結果表示
+             Run ボタンが無い → S3 パスを入力フィールドで受け取って各ステップに Run 追加
+        -->
+
         <pre class="bg-dark text-light p-3 rounded"><code>-- Create foreign table pointing to S3 Parquet
 CREATE FOREIGN TABLE lake_demo.s3_logs ()
     SERVER pg_lake
@@ -91,6 +147,14 @@ SELECT path FROM lake_file.list('s3://your-bucket/demo/**/*.parquet');</code></p
     <div class="card-header"><h5 class="mb-0">{{ t('lake.partition.title') }}</h5></div>
     <div class="card-body">
         <p>{{ t('lake.partition.intro') }}</p>
+
+        <!-- ★★★親切に書きなおす★★★
+             パーティショニングが「なぜ必要か」を先に説明する：
+             - テーブルが大きくなると全件スキャンが遅くなる
+             - パーティショニングで物理的にテーブルを分割し、必要な部分だけスキャンする
+             - PostgreSQL 10 で宣言的パーティショニング導入、PG11 で FDW パーティション対応
+             - pg_lake の Hot/Cold アーキテクチャはこの仕組みの上に構築されている
+        -->
 
         <h6>{{ t('lake.partition.types_title') }}</h6>
         <table class="table table-sm table-hover">
@@ -114,8 +178,41 @@ SELECT path FROM lake_file.list('s3://your-bucket/demo/**/*.parquet');</code></p
             </tbody>
         </table>
 
+        <!-- ★★★★親切に書きなおす★★★★
+             ATTACH / DETACH の基礎操作デモを追加する（pg_lake 不要、純粋な PostgreSQL 機能）：
+
+             基礎 1: パーティションテーブルの作成
+             CREATE TABLE logs (ts TIMESTAMPTZ, msg TEXT) PARTITION BY RANGE (ts);
+             CREATE TABLE logs_2026_03 PARTITION OF logs FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
+             → 「親テーブルにはデータが直接入らない。子パーティションに自動ルーティングされる」
+
+             基礎 2: DETACH — パーティションを切り離す
+             ALTER TABLE logs DETACH PARTITION logs_2026_03;
+             → 「切り離されたテーブルは独立した通常テーブルとして残る（データは消えない）」
+             → 「親テーブルへのクエリからは見えなくなる」
+             → 「メンテナンス、アーカイブ、別ストレージへの移行に使う」
+
+             基礎 3: ATTACH — 別のテーブルをパーティションとして接続する
+             ALTER TABLE logs ATTACH PARTITION logs_2026_03 FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
+             → 「既存のテーブル（通常テーブルでも Foreign Table でも）をパーティションとして組み込める」
+             → 「PG11 以降、Foreign Table も ATTACH 可能 → これが pg_lake Hot/Cold の核心技術」
+
+             基礎 4: なぜ ATTACH/DETACH が重要か
+             → 「Demo 4 では DETACH(heap) → DROP → CREATE FOREIGN TABLE(S3) → ATTACH(FDW)
+                 という手順でストレージを切り替える。アプリケーション側の SQL は一切変更不要」
+             → 図解: 親テーブル ← heap パーティション / FDW パーティション が混在できる
+
+             各基礎ステップに Run ボタンを付けて実際に試せるようにする。
+        -->
+
         <h6>{{ t('lake.partition.pruning_title') }}</h6>
         <p>{{ t('lake.partition.pruning_desc') }}</p>
+        <!-- ★★親切に書きなおす★★
+             「Subplans Removed: N」の読み方を具体的に解説する：
+             - N = スキップされたパーティション数
+             - WHERE ts >= '2026-03-20' なら 3月20日より前のパーティションは全てスキップ
+             - EXPLAIN の出力例を図示し、どの行がスキャン/スキップか矢印で示す
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code>-- Only scans the partition(s) matching the WHERE clause
 SELECT * FROM sensor_data WHERE ts >= '2026-03-20';
 
@@ -123,6 +220,23 @@ SELECT * FROM sensor_data WHERE ts >= '2026-03-20';
 EXPLAIN SELECT * FROM sensor_data WHERE ts >= '2026-03-20';</code></pre>
 
         <h6>{{ t('lake.partition.tools_title') }}</h6>
+        <!-- ★★★親切に書きなおす★★★
+             各ツールの関係を明確にする：
+             pg_partman: 「手動で CREATE TABLE ... PARTITION OF を繰り返さなくてよい」自動化ツール
+               → create_parent() で日次/月次パーティションを自動作成
+               → premake で未来のパーティションを先回りして作成
+               → retention 設定で古いパーティションの自動アーカイブ/削除
+             pg_incremental: 「差分データだけを別テーブルに転送する」パイプラインツール
+               → pg_cron ベースで定期実行（1分間隔など）
+               → exactly-once セマンティクス（二重処理なし）
+               → $1=前回処理時刻、$2=今回処理時刻 の意味を明示
+             pg_lake: 「S3/Iceberg がストレージバックエンドになる」ストレージ拡張
+               → Iceberg テーブル、Foreign Table、COPY のいずれもこの拡張が提供
+
+             3つが組み合わさると：
+             pg_partman(パーティション管理) + pg_incremental(差分同期) + pg_lake(S3ストレージ)
+             = Hot/Cold 自動アーカイブパイプライン（Demo 4 で体験）
+        -->
         <table class="table table-sm table-hover">
             <thead><tr><th>{{ t('lake.partition.tool') }}</th><th>{{ t('lake.partition.role') }}</th></tr></thead>
             <tbody>
@@ -154,9 +268,40 @@ EXPLAIN SELECT * FROM sensor_data WHERE ts >= '2026-03-20';</code></pre>
         <p>{{ t('lake.demo4.desc') }}</p>
         <div class="alert alert-info">{{ t('lake.demo4.arch_note') }}</div>
 
+        <!-- ★★★★親切に書きなおす★★★★
+             Demo 4 全体の「ストーリー」を冒頭に書く：
+             「IoT センサーが毎秒データを送信する。直近 3 日分は高速なローカルストレージ（heap）に保持し、
+              4 日以上前のデータは S3 の Iceberg 形式に自動アーカイブする。
+              アプリケーションからは 1 つのテーブル名でアクセスでき、Hot/Cold の境界を意識しない。
+              これを PostgreSQL の標準機能（パーティショニング + FDW）と pg_lake の組み合わせで実現する。」
+
+             ステップの全体像を番号付きで示す：
+             1. 親テーブル作成（PARTITION BY RANGE） + pg_partman で日次パーティション自動管理
+             2. Iceberg アーカイブテーブル作成（同期先）
+             3. pg_incremental でリアルタイム同期パイプライン設定（Hot 期間中は1分間隔で差分同期）
+             4. サンプルデータ投入（過去60日分 × 30万行）+ パーティション分布確認
+             5. パイプライン手動実行 + Iceberg 側の反映確認（0行→30万行）
+             6. Day 4 のパーティション切り替え（DETACH → DROP → FOREIGN TABLE → ATTACH）
+             7. パーティションプルーニング確認：
+                - 「昨日のデータ」→ heap 1パーティションのみスキャン、Cold 57パーティションはスキップ
+                - 「今週のデータ」→ heap 3 + Cold 数パーティション
+                - 「今月のデータ」→ heap 3 + Cold ~27パーティション
+                - 「全期間」→ 全パーティション（heap + FDW）を横断
+             8. Snowflake 側からの READ（別カード「Snowflake Integration Reference」で案内）
+        -->
+
         <pre class="bg-dark text-light p-3 rounded" style="font-size:0.78rem"><code>{{ t('lake.demo4.arch_diagram') }}</code></pre>
 
         <h6>Step 1: {{ t('lake.demo4.step1') }}</h6>
+        <!-- ★★★親切に書きなおす★★★
+             pg_partman の create_parent() が何をするか：
+             - p_parent_table: 管理対象の親テーブル
+             - p_control: パーティションキー列
+             - p_interval: 'daily' で日次パーティション
+             - p_premake: 3日先まで事前にパーティションを作成（データ到着前に準備）
+             Run 後に「SELECT * FROM pg_catalog.pg_inherits ...」などで
+             作成されたパーティション一覧を確認するステップを追加
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step1">CREATE SCHEMA IF NOT EXISTS iot;
 
 CREATE TABLE iot.sensor_data (
@@ -177,6 +322,13 @@ SELECT partman.create_parent(
         <div id="demo4R1"></div>
 
         <h6>Step 2: {{ t('lake.demo4.step2') }}</h6>
+        <!-- ★★親切に書きなおす★★
+             「なぜ別のテーブルが必要か」：
+             - sensor_data は heap（ローカルディスク）→ 高速だがストレージコストが高い
+             - sensor_archive は Iceberg（S3）→ 低コスト・Snowflake から READ 可能
+             - pg_incremental が sensor_data → sensor_archive に差分を転送する
+             - WITH (partition_by = 'day(ts)') は Iceberg 側のパーティション（S3 上のディレクトリ構造）
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step2">CREATE TABLE iot.sensor_archive (
     ts        TIMESTAMPTZ NOT NULL,
     device_id INT         NOT NULL,
@@ -189,6 +341,14 @@ SELECT partman.create_parent(
         <div id="demo4R2"></div>
 
         <h6>Step 3: {{ t('lake.demo4.step3_pipe') }}</h6>
+        <!-- ★★★親切に書きなおす★★★
+             pg_incremental の仕組みを解説：
+             - pg_cron ベースの差分処理フレームワーク
+             - create_pipeline() でパイプラインを登録すると、指定間隔で自動実行
+             - 時間間隔パイプラインの場合: $1 = 前回処理の終了時刻、$2 = 今回処理の終了時刻
+             - exactly-once セマンティクス: 進捗追跡と SQL 実行が同一トランザクション → 二重処理なし
+             - 本番では pg_cron が自動実行するが、デモでは CALL で手動実行できる
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step3">-- pg_incremental: continuous sync to Iceberg (1-minute interval)
 SELECT incremental.create_pipeline(
     pipeline_name := 'iot_to_iceberg',
@@ -207,18 +367,33 @@ SELECT * FROM incremental.pipelines;</code></pre>
         <div id="demo4R3"></div>
 
         <h6>Step 4: {{ t('lake.demo4.step4_data') }}</h6>
+        <!-- ★★親切に書きなおす★★
+             「過去 60 日分（2ヶ月分）のデータを一括投入する」
+             Run 後に確認クエリを追加：
+             - SELECT count(*) FROM iot.sensor_data; → 30万行
+             - 日別パーティションの行数分布を表示（60日分のパーティションに分散）
+             - pg_partman が自動的にパーティションにルーティングしたことを確認
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step4">INSERT INTO iot.sensor_data (ts, device_id, temp, humidity, pressure)
 SELECT
-    now() - (random() * interval '14 days'),
+    now() - (random() * interval '60 days'),
     (random() * 100)::int,
     20.0 + random() * 15.0,
     40.0 + random() * 40.0,
     1000.0 + (random() - 0.5) * 50.0
-FROM generate_series(1, 100000) AS s(i);</code></pre>
+FROM generate_series(1, 300000) AS s(i);</code></pre>
         <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo4Step4', 'demo4R4')">Run</button>
         <div id="demo4R4"></div>
 
         <h6>Step 5: {{ t('lake.demo4.step5_sync') }}</h6>
+        <!-- ★★★親切に書きなおす★★★
+             パイプライン実行の「前後比較」を明確にする：
+             Step 5a: Iceberg アーカイブの現在の行数を確認（0行のはず）→ Run → 結果表示
+             Step 5b: CALL incremental.execute_pipeline('iot_to_iceberg') → Run → 成功確認
+             Step 5c: 再度 Iceberg アーカイブの行数を確認 → Run → 「30万行が同期された」を確認
+             Step 5d: heap 側と Iceberg 側の日別行数を並べて比較 → 一致を確認
+             「本番では pg_cron が 1 分ごとに自動実行するが、デモでは CALL で即時実行している」を明記
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step5">-- Manual pipeline execution (in production, pg_cron runs this automatically)
 CALL incremental.execute_pipeline('iot_to_iceberg');
 
@@ -230,10 +405,37 @@ GROUP BY 1 ORDER BY 1;</code></pre>
         <div id="demo4R5"></div>
 
         <h6>Step 6: {{ t('lake.demo4.step6_switch') }}</h6>
+        <!-- ★★★★★親切に書きなおす★★★★★
+             ここが Demo 4 のハイライト。4つのステップの意味を1つずつ解説する：
+
+             ① ALTER TABLE ... DETACH PARTITION (heap パーティション)
+               「8日前のパーティションを親テーブルから切り離す。
+                データは残るが、親テーブル経由のクエリからは見えなくなる。」
+
+             ② DROP TABLE (heap パーティション)
+               「データは既に Step 5 で Iceberg（S3）に同期済みなので、
+                ローカルの heap を削除してストレージを解放する。」
+
+             ③ CREATE FOREIGN TABLE ... SERVER pg_lake_server
+               「S3 上の Iceberg データを参照する Foreign Table を作成する。
+                これは実データを持たない "仮想テーブル"。クエリ時に S3 から読み取る。」
+
+             ④ ALTER TABLE ... ATTACH PARTITION (FDW パーティション)
+               「Foreign Table を元の親テーブルにパーティションとして再接続する。
+                PG11 以降の機能。これにより、アプリケーションは同じ SQL で
+                Hot（heap）+ Cold（S3 FDW）を透過的にクエリできる。」
+
+             Run 後に確認クエリを追加：
+             - \d+ iot.sensor_data でパーティション一覧を表示
+             - heap と FDW が混在していることを確認
+             - 「partition_count は変わらないが、ストレージが切り替わった」ことを視覚化
+
+             DO $$ ブロック内の動的 SQL が読みにくいので、各 EXECUTE の前にコメントを追加
+        -->
         <p class="small text-muted">{{ t('lake.demo4.step6_desc') }}</p>
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step6">DO $$
 DECLARE
-    target_date DATE := current_date - 8;
+    target_date DATE := current_date - 4;
     part_name   TEXT := 'iot.sensor_data_p' || to_char(target_date, 'YYYY_MM_DD');
     fdw_name    TEXT := 'iot.sensor_cold_p' || to_char(target_date, 'YYYY_MM_DD');
     s3_path     TEXT := 's3://your-bucket/iot/sensor_archive/day=' || target_date || '/';
@@ -270,27 +472,69 @@ END $$;</code></pre>
         <div id="demo4R6"></div>
 
         <h6>Step 7: {{ t('lake.demo4.step7_verify') }}</h6>
-        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step7">-- Verify: recent query only scans heap partitions (Cold = pruned)
-EXPLAIN (COSTS OFF)
-SELECT avg(temp), avg(humidity)
-FROM iot.sensor_data
-WHERE ts >= now() - interval '2 days';
+        <!-- ★★★親切に書きなおす★★★
+             2つのクエリの違いを明確に解説：
 
--- Full range query: transparently spans Hot (heap) + Cold (FDW)
-SELECT date_trunc('day', ts) AS day,
-       avg(temp)::numeric(5,2)     AS avg_temp,
-       avg(humidity)::numeric(5,2) AS avg_hum,
-       count(*)                    AS rows
+             4つの集計パターンで、プルーニング効果の違いを体感させる：
+
+             クエリ A: 昨日のみ（WHERE ts >= now() - interval '1 day'）
+             → heap 1パーティションのみスキャン、Cold ~57パーティション全スキップ
+             → 「最も高速。S3 への通信ゼロ」
+
+             クエリ B: 今週（WHERE ts >= now() - interval '7 days'）
+             → heap 3 + Cold 数パーティション（Hot期間を跨ぐ）
+             → 「一部 S3 アクセスあり」
+
+             クエリ C: 今月（WHERE ts >= date_trunc('month', now())）
+             → heap 3 + Cold ~27パーティション
+             → 「Cold が多いが、先月以前のパーティションはスキップ」
+
+             クエリ D: 全期間
+             → heap + FDW 全パーティション
+             → 「アプリは iot.sensor_data という1つのテーブル名だけ知っていれば良い」
+
+             各クエリに別々の Run + EXPLAIN ボタンを付けて結果を並べて比較
+        -->
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step7a">-- A: Yesterday only (heap only, no S3 access)
+EXPLAIN (COSTS OFF)
+SELECT avg(temp), avg(humidity) FROM iot.sensor_data
+WHERE ts >= now() - interval '1 day';</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="runQuery('demo4Step7a', 'demo4R7a')">Run EXPLAIN</button>
+        <div id="demo4R7a"></div>
+
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step7b">-- B: This week (heap + some Cold)
+SELECT date_trunc('day', ts) AS day, count(*), avg(temp)::numeric(5,2) AS avg_temp
+FROM iot.sensor_data WHERE ts >= now() - interval '7 days'
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo4Step7b', 'demo4R7b')">Run</button>
+        <div id="demo4R7b"></div>
+
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step7c">-- C: This month (heap + ~27 Cold partitions)
+SELECT date_trunc('day', ts) AS day, count(*), avg(temp)::numeric(5,2) AS avg_temp
+FROM iot.sensor_data WHERE ts >= date_trunc('month', now())
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo4Step7c', 'demo4R7c')">Run</button>
+        <div id="demo4R7c"></div>
+
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step7d">-- D: Full range (all partitions: heap + FDW)
+SELECT date_trunc('week', ts) AS week, count(*), avg(temp)::numeric(5,2) AS avg_temp
 FROM iot.sensor_data
 GROUP BY 1 ORDER BY 1;</code></pre>
-        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="runQuery('demo4Step7', 'demo4R7')">Run</button>
-        <div id="demo4R7"></div>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo4Step7d', 'demo4R7d')">Run</button>
+        <div id="demo4R7d"></div>
 
         <h6>Step 8: {{ t('lake.demo4.step8_update') }}</h6>
+        <!-- ★★親切に書きなおす★★
+             過去データの修正について：
+             - FDW パーティション経由の UPDATE は pg_lake_table FDW の実装に依存（未検証）
+             - 確実な方法: Iceberg アーカイブテーブル（sensor_archive）を直接 UPDATE
+             - 「Iceberg は行レベルの UPDATE/DELETE をサポートしている」ことを強調
+             - pg_cron による自動化スケジュールの例は参考情報として表示
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code id="demo4Step8">-- Update historical data via Iceberg archive (not via FDW partition)
 UPDATE iot.sensor_archive
 SET temp = 25.0
-WHERE device_id = 42 AND ts::date = current_date - 8
+WHERE device_id = 42 AND ts::date = current_date - 10
 LIMIT 1;
 
 -- Automation: schedule Day 8 switch with pg_cron
@@ -306,6 +550,19 @@ LIMIT 1;
     <div class="card-header"><h5 class="mb-0">{{ t('lake.sf_ref.title') }}</h5></div>
     <div class="card-body">
         <p>{{ t('lake.sf_ref.desc') }}</p>
+        <!-- ★★★親切に書きなおす★★★
+             Snowflake 側の設定を「なぜ必要か」から説明する：
+             - pg_lake が S3 に書き出した Iceberg メタデータを、Snowflake が読み取る
+             - External Volume: S3 バケットへのアクセス経路（IAM ロール）
+             - Catalog Integration: Iceberg メタデータの読み取り方法
+             - ICEBERG TABLE: Snowflake のテーブルとして登録（データはコピーしない）
+             - ALTER ... REFRESH: pg_lake 側で新しいデータが書き込まれた後にメタデータを更新
+
+             Getting Started ガイドで入力した S3 バケット名・IAM ロール ARN を
+             ここにも動的に反映できると理想的（S3パス入力フィールドを共有）
+
+             各 SQL にコピーボタンを追加し、Snowflake Worksheet で実行する流れを明示
+        -->
         <pre class="bg-dark text-light p-3 rounded"><code>-- === Snowflake: Read Iceberg table from S3 ===
 
 -- 1. External Volume

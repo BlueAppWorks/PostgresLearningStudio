@@ -1,5 +1,7 @@
 """Target connection management routes."""
 
+import os
+
 import psycopg
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
@@ -23,7 +25,8 @@ def targets_list():
     except Exception as e:
         flash(f"Error loading targets: {e}", "danger")
 
-    return render_template("targets.html", targets=targets)
+    pg_instance_name = os.environ.get("PG_INSTANCE_NAME", "")
+    return render_template("targets.html", targets=targets, pg_instance_name=pg_instance_name)
 
 
 @targets_bp.route("/add", methods=["POST"])

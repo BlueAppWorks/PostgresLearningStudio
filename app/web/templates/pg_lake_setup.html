@@ -73,6 +73,14 @@
     </div>
 </div>
 
+<!-- Legend -->
+<div class="alert alert-secondary py-2 mb-4">
+    <strong>Where to run each step:</strong>
+    <span class="badge bg-warning text-dark ms-2">AWS Console</span> Open in your browser
+    <span class="badge bg-info text-dark ms-2">Snowflake Worksheet</span> Run SQL in Snowsight
+    <span class="badge bg-success ms-2">This App</span> Run directly with the button below
+</div>
+
 <!-- Step 1: S3 Bucket -->
 <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -80,10 +88,12 @@
     </div>
     <div class="card-body">
         <p>{{ t('lake.setup.step1.desc') }}</p>
-        <ul class="small">
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; S3 &gt; Create bucket</strong></li>
+            <li>Bucket name: use the name entered above</li>
             <li>{{ t('lake.setup.step1.note1') }}</li>
             <li>{{ t('lake.setup.step1.note2') }}</li>
-        </ul>
+        </ol>
     </div>
 </div>
 
@@ -95,6 +105,12 @@
     </div>
     <div class="card-body">
         <p>{{ t('lake.setup.step2.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Policies &gt; Create policy</strong></li>
+            <li>Switch to the <strong>JSON</strong> tab</li>
+            <li>Paste the policy below and click <strong>Next</strong></li>
+            <li>Name: <code>SnowflakePgLakeS3Access</code> (or your preferred name)</li>
+        </ol>
         <pre class="bg-dark text-light p-3 rounded" id="iamPolicyJson"></pre>
     </div>
 </div>
@@ -106,10 +122,14 @@
     </div>
     <div class="card-body">
         <p>{{ t('lake.setup.step3.desc') }}</p>
-        <ul class="small">
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Roles &gt; Create role</strong></li>
+            <li>Trusted entity: <strong>AWS account</strong> &gt; <strong>Another AWS account</strong> (enter your own Account ID for now; updated in Step 6)</li>
+            <li>Attach the policy created in Step 2</li>
+            <li>Role name: <code id="roleNameDisplay"></code></li>
             <li>{{ t('lake.setup.step3.note1') }}</li>
             <li>{{ t('lake.setup.step3.note2') }}</li>
-        </ul>
+        </ol>
     </div>
 </div>
 
@@ -121,6 +141,11 @@
     </div>
     <div class="card-body">
         <p>{{ t('lake.setup.step4.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>Snowsight &gt; Worksheets</strong></li>
+            <li>Switch to role <strong>ACCOUNTADMIN</strong></li>
+            <li>Paste and run the SQL below</li>
+        </ol>
         <pre class="bg-dark text-light p-3 rounded" id="integrationSql"></pre>
     </div>
 </div>
@@ -133,6 +158,11 @@
     </div>
     <div class="card-body">
         <p>{{ t('lake.setup.step5.desc') }}</p>
+        <ol class="small">
+            <li>Run the SQL below in the <strong>same Snowflake Worksheet</strong></li>
+            <li>Find <code>STORAGE_AWS_IAM_USER_ARN</code> and <code>STORAGE_AWS_EXTERNAL_ID</code> in the output</li>
+            <li>Paste both values into the fields below — they are used in Step 6</li>
+        </ol>
         <pre class="bg-dark text-light p-3 rounded" id="describeSql"></pre>
         <div class="row g-3 mt-2">
             <div class="col-md-6">
@@ -155,6 +185,11 @@
     </div>
     <div class="card-body">
         <p>{{ t('lake.setup.step6.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Roles</strong> &gt; select the role from Step 3</li>
+            <li>Go to <strong>Trust relationships</strong> tab &gt; <strong>Edit trust policy</strong></li>
+            <li>Replace the entire JSON with the policy below (uses the ARN and External ID from Step 5)</li>
+        </ol>
         <pre class="bg-dark text-light p-3 rounded" id="trustPolicyJson"></pre>
     </div>
 </div>
@@ -167,6 +202,10 @@
     </div>
     <div class="card-body">
         <p>{{ t('lake.setup.step7.desc') }}</p>
+        <ol class="small">
+            <li>Run the SQL below in <strong>Snowflake Worksheet</strong> as <strong>ACCOUNTADMIN</strong></li>
+            <li>This links the S3 storage integration to the Postgres instance</li>
+        </ol>
         <pre class="bg-dark text-light p-3 rounded" id="alterInstanceSql"></pre>
     </div>
 </div>
@@ -236,6 +275,9 @@ function regenerateAll() {
             ]
         }]
     }, null, 2);
+
+    // Step 3: Role name display
+    document.getElementById('roleNameDisplay').textContent = roleName;
 
     // Step 4: CREATE STORAGE INTEGRATION
     document.getElementById('integrationSql').textContent =

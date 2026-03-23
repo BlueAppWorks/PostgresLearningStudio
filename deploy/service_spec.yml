@@ -14,6 +14,8 @@ spec:
       PGPORT: "5432"
       PGDATABASE: "benchmark"
       SPCS_COMPUTE_POOL: {{COMPUTE_POOL}}
+      PG_INSTANCE_NAME: {{PG_INSTANCE_NAME}}
+      PG_CONNECTION_TYPE: {{PG_CONNECTION_TYPE}}
     resources:
       requests:
         cpu: "{{CPU_REQUEST}}"

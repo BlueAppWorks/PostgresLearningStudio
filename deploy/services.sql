@@ -142,6 +142,8 @@ $$
 DECLARE
     pool_name VARCHAR;
     pg_host VARCHAR;
+    pg_instance VARCHAR DEFAULT '';
+    pg_conn_type VARCHAR DEFAULT '';
     cpu_request VARCHAR DEFAULT '0.5';
     cpu_limit VARCHAR DEFAULT '2';
     memory_request VARCHAR DEFAULT '1Gi';
@@ -155,6 +157,10 @@ BEGIN
         RETURN 'ERROR: Postgres not configured. Run Postgres Setup first.';
     END IF;
 
+    BEGIN SELECT value INTO :pg_instance FROM app_config.settings WHERE key = 'pg_instance_name';
+    EXCEPTION WHEN OTHER THEN NULL; END;
+    BEGIN SELECT value INTO :pg_conn_type FROM app_config.settings WHERE key = 'pg_connection_type';
+    EXCEPTION WHEN OTHER THEN NULL; END;
     BEGIN SELECT value INTO :cpu_request FROM app_config.settings WHERE key = 'cpu_request';
     EXCEPTION WHEN OTHER THEN NULL; END;
     BEGIN SELECT value INTO :cpu_limit FROM app_config.settings WHERE key = 'cpu_limit';
@@ -168,6 +174,8 @@ BEGIN
     cpu_limit := COALESCE(:cpu_limit, '2');
     memory_request := COALESCE(:memory_request, '1Gi');
     memory_limit := COALESCE(:memory_limit, '4Gi');
+    pg_instance := COALESCE(:pg_instance, '');
+    pg_conn_type := COALESCE(:pg_conn_type, '');
 
     -- Resume compute pool if suspended
     BEGIN
@@ -186,7 +194,9 @@ BEGIN
         || 'CPU_REQUEST => ''' || :cpu_request || ''', '
         || 'CPU_LIMIT => ''' || :cpu_limit || ''', '
         || 'MEMORY_REQUEST => ''' || :memory_request || ''', '
-        || 'MEMORY_LIMIT => ''' || :memory_limit || ''''
+        || 'MEMORY_LIMIT => ''' || :memory_limit || ''', '
+        || 'PG_INSTANCE_NAME => ''"' || :pg_instance || '"'', '
+        || 'PG_CONNECTION_TYPE => ''"' || :pg_conn_type || '"'''
         || ')';
 
     EXECUTE IMMEDIATE :create_sql;

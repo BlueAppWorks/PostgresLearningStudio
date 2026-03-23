@@ -36,6 +36,9 @@
                             {{ t.name }}
                             {% if t.is_primary %}
                             <span class="badge bg-primary ms-1">Primary</span>
+                            {% if pg_instance_name %}
+                            <br><small class="text-muted">Instance: {{ pg_instance_name }}</small>
+                            {% endif %}
                             {% endif %}
                         </td>
                         <td>{{ t.host }}</td>

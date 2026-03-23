@@ -32,15 +32,14 @@ def _get_pg_lake_status() -> dict:
     return status
 
 
-def _derive_instance_name() -> str:
-    """Best-effort derivation of Postgres instance name from PGHOST."""
-    host = os.environ.get("PGHOST", "")
-    if not host:
-        return ""
-    # Snowflake Postgres host format: <instance>.<account>.snowflakecomputing.internal
-    # or just the instance name directly
-    parts = host.split(".")
-    return parts[0].upper() if parts else host
+def _get_instance_name() -> str:
+    """Get Postgres instance name from environment variable."""
+    return os.environ.get("PG_INSTANCE_NAME", "")
+
+
+def _get_connection_type() -> str:
+    """Get Postgres connection type (snowflake_postgres / external)."""
+    return os.environ.get("PG_CONNECTION_TYPE", "")
 
 
 # ── Page routes ──
@@ -55,11 +54,13 @@ def overview():
 @pg_lake_bp.route("/setup")
 def setup_guide():
     status = _get_pg_lake_status()
-    instance_name = _derive_instance_name()
+    instance_name = _get_instance_name()
+    connection_type = _get_connection_type()
     return render_template(
         "pg_lake_setup.html",
         pg_lake_status=status,
         instance_name=instance_name,
+        connection_type=connection_type,
     )
 
 
@@ -76,7 +77,8 @@ def demos():
 def setup_info():
     """Return dynamic setup context for the Getting Started wizard."""
     status = _get_pg_lake_status()
-    instance_name = _derive_instance_name()
+    instance_name = _get_instance_name()
+    connection_type = _get_connection_type()
     pg_database = os.environ.get("PGDATABASE", "benchmark")
 
     # Check if default_location_prefix is already set
@@ -95,6 +97,7 @@ def setup_info():
     return jsonify({
         "status": status,
         "instance_name": instance_name,
+        "connection_type": connection_type,
         "pg_database": pg_database,
         "location_prefix": location_prefix,
     })
@@ -197,16 +200,16 @@ def _pg_lake_setup_steps():
             ) USING iceberg
               WITH (partition_by = 'day(log_time)')
         """),
-        ("Insert 10,000 sample rows", """
+        ("Insert 30,000 sample rows (60 days)", """
             INSERT INTO lake_demo.access_logs
                 (log_time, user_id, action, path, status, response_ms)
             SELECT
-                now() - (random() * interval '30 days'),
+                now() - (random() * interval '60 days'),
                 (random() * 1000)::int,
                 (ARRAY['GET','POST','PUT','DELETE'])[1 + (i % 4)],
                 '/api/v1/' || (ARRAY['users','orders','products','health'])[1 + (i % 4)],
                 (ARRAY[200, 200, 200, 201, 301, 404, 500])[1 + (i % 7)],
                 random() * 500
-            FROM generate_series(1, 10000) AS s(i)
+            FROM generate_series(1, 30000) AS s(i)
         """),
     ]
