@@ -608,7 +608,7 @@ ORDER BY relname;""",
         "id": "learn_vacuum",
         "category": "PostgreSQL",
         "title": "VACUUM & Dead Tuples",
-        "description": "Delete rows, observe dead tuples, run VACUUM, compare sizes.",
+        "description": "Delete rows, observe dead tuples, run VACUUM, compare sizes. (Destructive: re-run Large Data Setup afterward to restore 100K rows)",
         "sql": """-- 1. Check current state
 SELECT relname, n_live_tup, n_dead_tup,
        pg_size_pretty(pg_total_relation_size('learning.large_orders')) AS size
