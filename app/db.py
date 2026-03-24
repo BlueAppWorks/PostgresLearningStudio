@@ -21,6 +21,65 @@ PG_CONNINFO = (
 
 _monitor_pool: ConnectionPool | None = None
 
+# Session-held connections for transaction mode (keyed by session_id)
+_txn_connections: dict[str, psycopg.Connection] = {}
+
+
+def get_txn_connection(session_id: str, target_id: int | None = None) -> psycopg.Connection:
+    """Get or create a persistent connection for transaction mode.
+    The connection stays open across requests until COMMIT/ROLLBACK."""
+    if session_id in _txn_connections:
+        conn = _txn_connections[session_id]
+        if conn.closed:
+            del _txn_connections[session_id]
+        else:
+            return conn
+
+    if target_id:
+        target = get_target(target_id)
+        if target:
+            conninfo = (
+                f"host={target['host']} "
+                f"port={target['port']} "
+                f"dbname={target['dbname']} "
+                f"user={target['username']} "
+                f"password={target['password']} "
+                f"sslmode=require"
+            )
+        else:
+            conninfo = PG_CONNINFO
+    else:
+        conninfo = PG_CONNINFO
+
+    conn = psycopg.connect(conninfo, autocommit=False)
+    _txn_connections[session_id] = conn
+    return conn
+
+
+def release_txn_connection(session_id: str):
+    """Close and remove a transaction-mode connection."""
+    conn = _txn_connections.pop(session_id, None)
+    if conn and not conn.closed:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def get_txn_status(session_id: str) -> str:
+    """Return transaction status for a session: 'idle', 'in_transaction', or 'none'."""
+    conn = _txn_connections.get(session_id)
+    if not conn or conn.closed:
+        return "none"
+    info = conn.info
+    if info.transaction_status == psycopg.pq.TransactionStatus.IDLE:
+        return "idle"
+    elif info.transaction_status == psycopg.pq.TransactionStatus.INTRANS:
+        return "in_transaction"
+    elif info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
+        return "in_error"
+    return "unknown"
+
 
 def get_monitor_pool() -> ConnectionPool:
     """Get or create the connection pool for monitoring queries."""

@@ -13,6 +13,42 @@
     var referenceTitle = document.getElementById('referenceTitle');
     var referenceCode = document.getElementById('referenceCode');
     var execHint = document.getElementById('execHint');
+    var autoCommitToggle = document.getElementById('autoCommitToggle');
+    var txnBadge = document.getElementById('txnBadge');
+
+    // Generate a unique session ID for transaction mode
+    var sessionId = 'sql_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+
+    function updateTxnBadge(status) {
+        if (!status || status === 'none') {
+            txnBadge.style.display = 'none';
+        } else if (status === 'in_transaction') {
+            txnBadge.style.display = 'inline';
+            txnBadge.className = 'badge bg-warning text-dark';
+            txnBadge.textContent = 'IN TRANSACTION';
+        } else if (status === 'in_error') {
+            txnBadge.style.display = 'inline';
+            txnBadge.className = 'badge bg-danger';
+            txnBadge.textContent = 'TXN ERROR (ROLLBACK needed)';
+        } else if (status === 'idle') {
+            txnBadge.style.display = 'inline';
+            txnBadge.className = 'badge bg-info text-dark';
+            txnBadge.textContent = 'TXN IDLE';
+        }
+    }
+
+    // ── Auto Commit toggle ──
+    autoCommitToggle.addEventListener('change', function() {
+        if (this.checked) {
+            // Switching back to auto-commit: release any held transaction
+            fetch('/sql/txn-rollback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId })
+            });
+            updateTxnBadge('none');
+        }
+    });
 
     // ── Keyboard shortcuts ──
 
@@ -116,10 +152,17 @@
         var targetSelect = document.getElementById('targetSelect');
         var targetId = targetSelect ? targetSelect.value : null;
 
+        var txnMode = !autoCommitToggle.checked;
+        var payload = { sql: sql, mode: mode, target_id: targetId };
+        if (txnMode) {
+            payload.txn_mode = true;
+            payload.session_id = sessionId;
+        }
+
         fetch('/sql/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sql: sql, mode: mode, target_id: targetId })
+            body: JSON.stringify(payload)
         })
         .then(function(res) {
             return res.json().then(function(data) {
@@ -130,6 +173,9 @@
             loadingIndicator.style.display = 'none';
             btnExecute.disabled = false;
             execHint.textContent = '';
+            if (result.data.txn_status !== undefined) {
+                updateTxnBadge(result.data.txn_status);
+            }
             renderResult(result.data, result.status);
         })
         .catch(function(err) {

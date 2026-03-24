@@ -6,7 +6,11 @@ import time
 
 from flask import Blueprint, jsonify, render_template, request
 
-from db import get_connection, get_target_connection, get_targets, get_user_sql_sample, get_user_sql_samples
+from db import (
+    get_connection, get_target_connection, get_targets,
+    get_txn_connection, get_txn_status, release_txn_connection,
+    get_user_sql_sample, get_user_sql_samples,
+)
 from sql_samples import get_sample_by_id, get_samples
 
 sql_bp = Blueprint("sql_client", __name__, url_prefix="/sql")
@@ -219,48 +223,61 @@ def sql_execute():
 
     # Use target connection if specified
     target_id = data.get("target_id")
+    txn_mode = data.get("txn_mode", False)
+    session_id = data.get("session_id", "")
 
     try:
         start = time.monotonic()
-        conn_func = get_target_connection(int(target_id)) if target_id else get_connection()
-        with conn_func as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                cur.execute(f"SET statement_timeout = '{STATEMENT_TIMEOUT}'")
-                cur.execute(sql_text)
 
+        if txn_mode and session_id:
+            # Transaction mode: persistent connection
+            conn = get_txn_connection(
+                session_id,
+                int(target_id) if target_id else None,
+            )
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(f"SET statement_timeout = '{STATEMENT_TIMEOUT}'")
+                    cur.execute(sql_text)
+
+                    elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+
+                    # Detect COMMIT/ROLLBACK → release connection
+                    sql_upper = sql_text.strip().upper()
+                    is_end_txn = sql_upper in ("COMMIT", "COMMIT;", "ROLLBACK", "ROLLBACK;",
+                                                "END", "END;")
+
+                    result = _build_result(cur, elapsed_ms)
+                    result["txn_status"] = get_txn_status(session_id)
+
+                    if is_end_txn:
+                        release_txn_connection(session_id)
+                        result["txn_status"] = "none"
+
+                    return jsonify(result)
+            except Exception as e:
                 elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+                error_msg = str(e).strip()
+                txn_status = get_txn_status(session_id)
+                # On error in transaction, PostgreSQL marks it as aborted
+                if txn_status == "in_error":
+                    error_msg += "\n\nTransaction is aborted. Run ROLLBACK to reset."
+                return jsonify({
+                    "error": error_msg,
+                    "execution_time_ms": elapsed_ms,
+                    "txn_status": txn_status,
+                }), 400
+        else:
+            # Normal mode: one-shot connection with autocommit
+            conn_func = get_target_connection(int(target_id)) if target_id else get_connection()
+            with conn_func as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute(f"SET statement_timeout = '{STATEMENT_TIMEOUT}'")
+                    cur.execute(sql_text)
 
-                # Check if query returns rows
-                if cur.description:
-                    columns = [d.name for d in cur.description]
-                    rows = cur.fetchmany(MAX_ROWS + 1)
-                    truncated = len(rows) > MAX_ROWS
-                    if truncated:
-                        rows = rows[:MAX_ROWS]
-
-                    # Convert to serializable types
-                    clean_rows = []
-                    for row in rows:
-                        clean_rows.append(
-                            [str(v) if v is not None else None for v in row]
-                        )
-
-                    return jsonify({
-                        "columns": columns,
-                        "rows": clean_rows,
-                        "row_count": len(clean_rows),
-                        "truncated": truncated,
-                        "execution_time_ms": elapsed_ms,
-                    })
-                else:
-                    # DDL/DML with no result set
-                    rowcount = cur.rowcount
-                    return jsonify({
-                        "message": f"Query executed successfully. {rowcount} row(s) affected.",
-                        "row_count": rowcount if rowcount >= 0 else 0,
-                        "execution_time_ms": elapsed_ms,
-                    })
+                    elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+                    return jsonify(_build_result(cur, elapsed_ms))
     except Exception as e:
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
         error_msg = str(e).strip()
@@ -268,6 +285,51 @@ def sql_execute():
             "error": error_msg,
             "execution_time_ms": elapsed_ms,
         }), 400
+
+
+def _build_result(cur, elapsed_ms: float) -> dict:
+    """Build a JSON-serializable result dict from a cursor."""
+    if cur.description:
+        columns = [d.name for d in cur.description]
+        rows = cur.fetchmany(MAX_ROWS + 1)
+        truncated = len(rows) > MAX_ROWS
+        if truncated:
+            rows = rows[:MAX_ROWS]
+        clean_rows = [
+            [str(v) if v is not None else None for v in row]
+            for row in rows
+        ]
+        return {
+            "columns": columns,
+            "rows": clean_rows,
+            "row_count": len(clean_rows),
+            "truncated": truncated,
+            "execution_time_ms": elapsed_ms,
+        }
+    else:
+        rowcount = cur.rowcount
+        return {
+            "message": f"Query executed successfully. {rowcount} row(s) affected.",
+            "row_count": rowcount if rowcount >= 0 else 0,
+            "execution_time_ms": elapsed_ms,
+        }
+
+
+@sql_bp.route("/txn-status", methods=["POST"])
+def txn_status():
+    """Return transaction status for a session."""
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id", "")
+    return jsonify({"txn_status": get_txn_status(session_id)})
+
+
+@sql_bp.route("/txn-rollback", methods=["POST"])
+def txn_rollback():
+    """Force rollback and release a transaction connection."""
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id", "")
+    release_txn_connection(session_id)
+    return jsonify({"txn_status": "none"})
 
 
 @sql_bp.route("/samples")
