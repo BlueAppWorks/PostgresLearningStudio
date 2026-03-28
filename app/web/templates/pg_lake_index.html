@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}pg_lake - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<h2>pg_lake</h2>
+
+<div class="alert alert-info mb-4">
+    {{ t('lake.intro') }}
+</div>
+
+{% if pg_lake_status.installed %}
+<div class="alert alert-success">{{ t('lake.status_ready') }}</div>
+{% elif pg_lake_status.available %}
+<div class="alert alert-warning">
+    pg_lake is available (v{{ pg_lake_status.version }}) but not yet installed.
+    <a href="/pg-lake/setup" class="alert-link">Complete the Getting Started guide</a>.
+</div>
+{% else %}
+<div class="alert alert-secondary">
+    {{ t('lake.unavailable') }}
+</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">{{ t('lake.setup.title') }}</h5>
+                <p class="card-text">{{ t('lake.setup.card_desc') }}</p>
+            </div>
+            <div class="card-footer">
+                <a href="/pg-lake/setup" class="btn btn-primary btn-sm">Getting Started</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">{{ t('lake.demos.title') }}</h5>
+                <p class="card-text">{{ t('lake.demos.card_desc') }}</p>
+            </div>
+            <div class="card-footer">
+                <a href="/pg-lake/demos" class="btn btn-primary btn-sm">Demos</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Extension List -->
+<div class="card">
+    <div class="card-header"><h5 class="mb-0">{{ t('lake.extensions') }}</h5></div>
+    <div class="card-body">
+        <table class="table table-sm table-hover mb-0">
+            <thead><tr><th>Extension</th><th>Min Version</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><code>pg_lake</code></td><td>3.2</td><td>{% if lang == 'ja' %}メインエクステンション{% else %}Main extension{% endif %}</td></tr>
+                <tr><td><code>pg_lake_iceberg</code></td><td>3.2</td><td>Iceberg {% if lang == 'ja' %}テーブル実装{% else %}table implementation{% endif %}</td></tr>
+                <tr><td><code>pg_lake_table</code></td><td>3.2</td><td>Foreign Data Wrapper</td></tr>
+                <tr><td><code>pg_lake_copy</code></td><td>3.2</td><td>COPY {% if lang == 'ja' %}拡張（S3 対応）{% else %}extension (S3 support){% endif %}</td></tr>
+                <tr><td><code>pg_lake_engine</code></td><td>3.2</td><td>{% if lang == 'ja' %}クエリエンジン{% else %}Query engine{% endif %}</td></tr>
+                <tr><td><code>pg_lake_spatial</code></td><td>3.2</td><td>{% if lang == 'ja' %}地理空間ファイル対応{% else %}Geospatial file support{% endif %}</td></tr>
+                <tr><td><code>pg_lake_benchmark</code></td><td>3.2</td><td>{% if lang == 'ja' %}ベンチマーク{% else %}Benchmark{% endif %}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

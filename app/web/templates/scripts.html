@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Scripts & Scenarios - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Scripts & Scenarios</h2>
+
+<ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#sqlTab"
+                type="button" role="tab">
+            SQL Samples ({{ sql_samples|length }})
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#scenarioTab"
+                type="button" role="tab">
+            Benchmark Scenarios ({{ bench_scenarios|length }})
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- ── SQL Samples Tab ── -->
+    <div class="tab-pane fade show active" id="sqlTab" role="tabpanel">
+        <div class="alert alert-info">
+            {{ t('scripts.sql_info') }}
+        </div>
+
+        {% if sql_samples %}
+        <div class="card mb-4">
+            <div class="card-header"><strong>Registered SQL Samples</strong></div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Category</th>
+                            <th>Description</th>
+                            <th>Preview</th>
+                            <th style="width: 80px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in sql_samples %}
+                        <tr>
+                            <td class="fw-semibold">{{ s.title }}</td>
+                            <td>{{ s.category }}</td>
+                            <td>{{ s.description }}</td>
+                            <td><div class="script-preview">{{ s.sql_content[:200] }}</div></td>
+                            <td>
+                                <form method="POST"
+                                      action="/scripts/sql/{{ s.sample_id }}/delete"
+                                      onsubmit="return confirm('Delete this sample?');">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Add SQL Sample -->
+        <div class="card">
+            <div class="card-header"><strong>Add SQL Sample</strong></div>
+            <div class="card-body">
+                <form method="POST" action="/scripts/sql/add" enctype="multipart/form-data">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-5">
+                            <label for="sql_title" class="form-label">Title</label>
+                            <input type="text" class="form-control" id="sql_title"
+                                   name="title" required placeholder="e.g. Custom JSONB Queries">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="sql_category" class="form-label">Category</label>
+                            <input type="text" class="form-control" id="sql_category"
+                                   name="category" value="User Scripts"
+                                   placeholder="e.g. User Scripts">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="sql_description" class="form-label">Description</label>
+                            <input type="text" class="form-control" id="sql_description"
+                                   name="description"
+                                   placeholder="Brief description of the sample">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sql_content" class="form-label">SQL Content</label>
+                        <textarea class="script-textarea" id="sql_content" name="sql_content"
+                                  rows="10"
+                                  placeholder="-- Paste your SQL script here&#10;SELECT 1;"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sql_file" class="form-label">
+                            Or upload a <code>.sql</code> file (overrides textarea)
+                        </label>
+                        <input type="file" class="form-control" id="sql_file"
+                               name="sql_file" accept=".sql,.txt">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add SQL Sample</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Benchmark Scenarios Tab ── -->
+    <div class="tab-pane fade" id="scenarioTab" role="tabpanel">
+        <div class="alert alert-info">
+            {{ t('scripts.bench_info') }}
+        </div>
+
+        {% if bench_scenarios %}
+        <div class="card mb-4">
+            <div class="card-header"><strong>Registered Scenarios</strong></div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Description</th>
+                            <th>Write Script</th>
+                            <th>Read Script</th>
+                            <th style="width: 80px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sc in bench_scenarios %}
+                        <tr>
+                            <td class="fw-semibold">{{ sc.name }}</td>
+                            <td>{{ sc.description }}</td>
+                            <td><div class="script-preview">{{ sc.write_script[:200] }}</div></td>
+                            <td><div class="script-preview">{{ sc.read_script[:200] }}</div></td>
+                            <td>
+                                <form method="POST"
+                                      action="/scripts/scenario/{{ sc.scenario_id }}/delete"
+                                      onsubmit="return confirm('Delete this scenario?');">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Add Benchmark Scenario -->
+        <div class="card">
+            <div class="card-header"><strong>Add Benchmark Scenario</strong></div>
+            <div class="card-body">
+                <form method="POST" action="/scripts/scenario/add" enctype="multipart/form-data">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label for="scenario_name" class="form-label">Scenario Name</label>
+                            <input type="text" class="form-control" id="scenario_name"
+                                   name="name" required placeholder="e.g. Order Processing">
+                        </div>
+                        <div class="col-md-8">
+                            <label for="scenario_description" class="form-label">Description</label>
+                            <input type="text" class="form-control" id="scenario_description"
+                                   name="description"
+                                   placeholder="e.g. Simulates order insert + inventory update">
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Write Transaction Script</label>
+                            <textarea class="script-textarea" name="write_script" rows="8"
+                                      placeholder="-- pgbench custom script (write)&#10;\set aid random(1, 100000 * :scale)&#10;BEGIN;&#10;UPDATE pgbench_accounts SET abalance = abalance + 1 WHERE aid = :aid;&#10;COMMIT;"></textarea>
+                            <div class="mt-2">
+                                <label class="form-label text-muted small">Or upload file:</label>
+                                <input type="file" class="form-control form-control-sm"
+                                       name="write_file" accept=".sql,.txt">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Read-Only Transaction Script</label>
+                            <textarea class="script-textarea" name="read_script" rows="8"
+                                      placeholder="-- pgbench custom script (read-only)&#10;\set aid random(1, 100000 * :scale)&#10;SELECT abalance FROM pgbench_accounts WHERE aid = :aid;"></textarea>
+                            <div class="mt-2">
+                                <label class="form-label text-muted small">Or upload file:</label>
+                                <input type="file" class="form-control form-control-sm"
+                                       name="read_file" accept=".sql,.txt">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Add Scenario</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}Compare - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Compare Results</h2>
+    <button class="btn btn-primary" onclick="loadComparison()" id="compareBtn" disabled>
+        Compare Selected
+    </button>
+</div>
+
+<!-- Run Selection -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Select Runs to Compare (max 8)</span>
+        <small class="text-muted" id="selectionCount">0 selected</small>
+    </div>
+    <div class="card-body p-0">
+        {% if runs %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:40px;"></th>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>TPS</th>
+                        <th>Latency (ms)</th>
+                        <th>Clients</th>
+                        <th>Duration</th>
+                        <th>Script</th>
+                        <th>Started</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr onclick="toggleRunCheckbox({{ run.run_id }})" style="cursor:pointer;">
+                        <td>
+                            <input class="form-check-input run-checkbox" type="checkbox"
+                                   value="{{ run.run_id }}" id="run_{{ run.run_id }}"
+                                   onchange="updateSelection()" onclick="event.stopPropagation();">
+                        </td>
+                        <td>{{ run.run_id }}</td>
+                        <td>{{ run.run_name or '-' }}</td>
+                        <td>{{ "%.1f"|format(run.tps) if run.tps else '-' }}</td>
+                        <td>{{ "%.2f"|format(run.latency_avg_ms) if run.latency_avg_ms else '-' }}</td>
+                        <td>{{ run.clients or '-' }}</td>
+                        <td>{{ run.duration or '-' }}s</td>
+                        <td>{{ run.script or '-' }}</td>
+                        <td>{{ run.started_at.strftime('%m/%d %H:%M') if run.started_at else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="p-3 text-muted mb-0">No completed benchmark results to compare.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Charts (hidden until comparison loaded) -->
+<div id="chartsSection" style="display: none;">
+    <!-- Summary comparison table -->
+    <div class="card mb-4">
+        <div class="card-header">Summary Comparison</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0" id="summaryTable">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <!-- Dynamic columns added by JS -->
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">TPS Over Time</div>
+                <div class="card-body chart-container">
+                    <canvas id="tpsChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Latency Over Time (ms)</div>
+                <div class="card-body chart-container">
+                    <canvas id="latencyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+<script>
+const COLORS = {{ colors|tojson }};
+let tpsChart = null;
+let latencyChart = null;
+
+function toggleRunCheckbox(runId) {
+    const cb = document.getElementById('run_' + runId);
+    cb.checked = !cb.checked;
+    updateSelection();
+}
+
+function updateSelection() {
+    const checked = document.querySelectorAll('.run-checkbox:checked');
+    const count = checked.length;
+    document.getElementById('selectionCount').textContent = count + ' selected';
+    document.getElementById('compareBtn').disabled = count < 2;
+
+    // Enforce max 8
+    const unchecked = document.querySelectorAll('.run-checkbox:not(:checked)');
+    unchecked.forEach(function(cb) {
+        cb.disabled = count >= 8;
+    });
+}
+
+function loadComparison() {
+    const checked = document.querySelectorAll('.run-checkbox:checked');
+    const ids = Array.from(checked).map(function(cb) { return cb.value; });
+
+    document.getElementById('compareBtn').disabled = true;
+    document.getElementById('compareBtn').textContent = 'Loading...';
+
+    fetch('/compare/data?ids=' + ids.join(','))
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            renderComparison(data.runs);
+            document.getElementById('chartsSection').style.display = '';
+            document.getElementById('compareBtn').disabled = false;
+            document.getElementById('compareBtn').textContent = 'Compare Selected';
+            // Scroll to charts
+            document.getElementById('chartsSection').scrollIntoView({ behavior: 'smooth' });
+        })
+        .catch(function(err) {
+            console.error('Compare error:', err);
+            document.getElementById('compareBtn').disabled = false;
+            document.getElementById('compareBtn').textContent = 'Compare Selected';
+        });
+}
+
+function renderComparison(runs) {
+    renderSummaryTable(runs);
+    renderCharts(runs);
+}
+
+function renderSummaryTable(runs) {
+    var table = document.getElementById('summaryTable');
+    var thead = table.querySelector('thead tr');
+    var tbody = table.querySelector('tbody');
+
+    // Clear previous
+    thead.innerHTML = '<th>Metric</th>';
+    tbody.innerHTML = '';
+
+    // Header columns
+    runs.forEach(function(run, i) {
+        var th = document.createElement('th');
+        th.innerHTML = '<span style="color:' + COLORS[i] + ';">\u25cf</span> #'
+            + run.meta.run_id + (run.meta.run_name ? ' ' + run.meta.run_name : '');
+        thead.appendChild(th);
+    });
+
+    // Metrics rows
+    var metrics = [
+        { label: 'TPS', key: 'tps', fmt: function(v) { return v ? v.toFixed(1) : '-'; } },
+        { label: 'Avg Latency (ms)', key: 'latency_avg_ms', fmt: function(v) { return v ? v.toFixed(2) : '-'; } },
+        { label: 'Transactions', key: 'num_transactions', fmt: function(v) { return v ? v.toLocaleString() : '-'; } },
+        { label: 'Failed', key: 'num_failed', fmt: function(v) { return v !== null && v !== undefined ? v.toLocaleString() : '-'; } },
+        { label: 'Clients', key: 'clients', fmt: function(v) { return v || '-'; } },
+        { label: 'Duration (s)', key: 'duration', fmt: function(v) { return v || '-'; } },
+    ];
+
+    metrics.forEach(function(m) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td class="fw-bold">' + m.label + '</td>';
+
+        // Find best value for highlighting
+        var values = runs.map(function(r) { return r.meta[m.key]; });
+        var best = null;
+        if (m.key === 'tps') best = Math.max.apply(null, values.filter(function(v) { return v != null; }));
+        if (m.key === 'latency_avg_ms') best = Math.min.apply(null, values.filter(function(v) { return v != null && v > 0; }));
+
+        runs.forEach(function(run) {
+            var td = document.createElement('td');
+            var val = run.meta[m.key];
+            td.textContent = m.fmt(val);
+
+            // Highlight best
+            if (best !== null && val === best) {
+                td.classList.add('fw-bold');
+                td.style.color = m.key === 'tps' ? '#6ea8fe' : '#ffda6a';
+            }
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+function createCompareChart(canvasId, label, yLabel) {
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 400 },
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: { display: true, text: 'Elapsed (s)' },
+                    ticks: { color: '#aaa' },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                },
+                y: {
+                    title: { display: true, text: yLabel },
+                    ticks: { color: '#aaa' },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    beginAtZero: true,
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#ccc', usePointStyle: true },
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                }
+            }
+        }
+    });
+}
+
+function renderCharts(runs) {
+    // Destroy previous charts
+    if (tpsChart) tpsChart.destroy();
+    if (latencyChart) latencyChart.destroy();
+
+    tpsChart = createCompareChart('tpsChart', 'TPS', 'TPS');
+    latencyChart = createCompareChart('latencyChart', 'Latency', 'ms');
+
+    runs.forEach(function(run, i) {
+        var color = COLORS[i];
+        var runLabel = '#' + run.meta.run_id + (run.meta.run_name ? ' ' + run.meta.run_name : '');
+
+        // TPS dataset
+        tpsChart.data.datasets.push({
+            label: runLabel,
+            data: run.progress.map(function(p) { return { x: p.elapsed_sec, y: p.tps }; }),
+            borderColor: color,
+            backgroundColor: color + '22',
+            fill: false,
+            tension: 0.3,
+            pointRadius: 1,
+            borderWidth: 2,
+        });
+
+        // Latency dataset
+        latencyChart.data.datasets.push({
+            label: runLabel,
+            data: run.progress.map(function(p) { return { x: p.elapsed_sec, y: p.latency_avg_ms }; }),
+            borderColor: color,
+            backgroundColor: color + '22',
+            fill: false,
+            tension: 0.3,
+            pointRadius: 1,
+            borderWidth: 2,
+        });
+    });
+
+    tpsChart.update();
+    latencyChart.update();
+}
+</script>
+{% endblock %}

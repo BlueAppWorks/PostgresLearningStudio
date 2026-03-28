@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}New Benchmark - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">New Benchmark</h2>
+
+{% if active_run %}
+<div class="alert alert-warning">
+    Benchmark <strong>#{{ active_run }}</strong> is currently running.
+    <a href="/benchmark/run/{{ active_run }}" class="alert-link">View progress</a>.
+    A new benchmark cannot be started until the current one completes.
+</div>
+{% endif %}
+
+<form method="POST" action="/benchmark/submit" id="benchmarkForm">
+    <!-- Target Selection -->
+    <div class="form-section">
+        <h5>Target Connection</h5>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <select class="form-select" id="target_id" name="target_id">
+                    {% for t in targets %}
+                    <option value="{{ t.target_id }}">
+                        {{ t.name }}{% if t.is_primary %} (Primary){% endif %}
+                        &mdash; {{ t.host }}:{{ t.port }}/{{ t.dbname }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">
+                    Select the PostgreSQL instance to benchmark.
+                    Manage connections on the <a href="/targets">Connections</a> page.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Run Name -->
+    <div class="mb-3">
+        <label for="run_name" class="form-label">Run Name (optional)</label>
+        <input type="text" class="form-control" id="run_name" name="run_name"
+               placeholder="e.g. baseline-test-1">
+    </div>
+
+    <!-- Scenario Selection -->
+    <div class="form-section">
+        <h5>Scenario</h5>
+        <div class="mb-3">
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="scenario_mode"
+                       id="mode_builtin" value="builtin" checked onchange="toggleScenario()">
+                <label class="form-check-label" for="mode_builtin">Built-in Script</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="scenario_mode"
+                       id="mode_mixer" value="mixer" onchange="toggleScenario()">
+                <label class="form-check-label" for="mode_mixer">Workload Mixer</label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="scenario_mode"
+                       id="mode_custom" value="custom" onchange="toggleScenario()">
+                <label class="form-check-label" for="mode_custom">Custom Scenario</label>
+            </div>
+        </div>
+
+        <div id="builtin_section">
+            <label for="builtin_script" class="form-label">Script</label>
+            <select class="form-select" id="builtin_script" name="builtin_script">
+                <option value="tpcb-like" selected>TPC-B Like (Read/Write mix)</option>
+                <option value="simple-update">Simple Update (Single-row update)</option>
+                <option value="select-only">Select Only (Read-only)</option>
+            </select>
+            <div class="form-text">
+                <strong>TPC-B Like</strong>: Standard OLTP mix.
+                <strong>Simple Update</strong>: Lightweight write.
+                <strong>Select Only</strong>: Pure read performance.
+            </div>
+        </div>
+
+        <div id="mixer_section" style="display: none;">
+            <label for="read_ratio" class="form-label">
+                Read/Write Ratio: <span id="ratio_display">50% Read / 50% Write</span>
+            </label>
+            <input type="range" class="form-range" id="read_ratio" name="read_ratio"
+                   min="0" max="100" step="10" value="50" oninput="updateRatio()">
+            <div class="form-text">
+                Uses <code>-b select-only@N -b tpcb-like@M</code> for workload mixing.
+            </div>
+        </div>
+
+        <div id="custom_section" style="display: none;">
+            {% if scenarios %}
+            <label for="custom_scenario_id" class="form-label">Scenario</label>
+            <select class="form-select mb-3" id="custom_scenario_id" name="custom_scenario_id">
+                {% for s in scenarios %}
+                <option value="{{ s.scenario_id }}">
+                    {{ s.name }}{% if s.description %} &mdash; {{ s.description }}{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            <label for="custom_read_ratio" class="form-label">
+                Read/Write Ratio: <span id="custom_ratio_display">50% Read / 50% Write</span>
+            </label>
+            <input type="range" class="form-range" id="custom_read_ratio" name="custom_read_ratio"
+                   min="0" max="100" step="10" value="50" oninput="updateCustomRatio()">
+            <div class="form-text">
+                Uses <code>-f write.sql@N -f read.sql@M</code> for custom workload mixing.
+            </div>
+            {% else %}
+            <div class="alert alert-secondary">
+                No custom scenarios registered.
+                <a href="/scripts">Add one on the Scripts & Scenarios page</a>.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- pgbench Parameters -->
+    <div class="form-section">
+        <h5>Parameters</h5>
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label for="clients" class="form-label">Clients</label>
+                <input type="number" class="form-control" id="clients" name="clients"
+                       value="10" min="1" max="1000">
+            </div>
+            <div class="col-md-3">
+                <label for="threads" class="form-label">Threads</label>
+                <input type="number" class="form-control" id="threads" name="threads"
+                       value="2" min="1" max="256">
+            </div>
+            <div class="col-md-3">
+                <label for="duration" class="form-label">Duration (sec)</label>
+                <input type="number" class="form-control" id="duration" name="duration"
+                       value="60" min="10" max="3600">
+            </div>
+            <div class="col-md-3">
+                <label for="protocol" class="form-label">Protocol</label>
+                <select class="form-select" id="protocol" name="protocol">
+                    <option value="simple" selected>Simple</option>
+                    <option value="extended">Extended</option>
+                    <option value="prepared">Prepared</option>
+                </select>
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-md-3">
+                <label for="progress_interval" class="form-label">Progress Interval (sec)</label>
+                <input type="number" class="form-control" id="progress_interval"
+                       name="progress_interval" value="5" min="1" max="60">
+            </div>
+        </div>
+    </div>
+
+    <!-- Initialize -->
+    <div class="form-section">
+        <h5>Data Initialization</h5>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="initialize"
+                   name="initialize" onchange="toggleInit()">
+            <label class="form-check-label" for="initialize">
+                Run <code>pgbench -i</code> before benchmark
+            </label>
+        </div>
+        <div id="init_section" style="display: none;">
+            <div class="col-md-3">
+                <label for="scale_factor" class="form-label">Scale Factor</label>
+                <input type="number" class="form-control" id="scale_factor"
+                       name="scale_factor" value="10" min="1" max="10000">
+                <div class="form-text">Scale 1 = ~16MB, Scale 100 = ~1.6GB</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DB Spec (optional) -->
+    <div class="form-section">
+        <h5>Database Spec (optional)</h5>
+        <p class="form-text">Hardware specs are recorded alongside PG parameters (auto-collected).</p>
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label for="spec_cpu_cores" class="form-label">CPU Cores</label>
+                <input type="text" class="form-control" id="spec_cpu_cores"
+                       name="spec_cpu_cores" placeholder="e.g. 4">
+            </div>
+            <div class="col-md-3">
+                <label for="spec_memory_gb" class="form-label">Memory (GB)</label>
+                <input type="text" class="form-control" id="spec_memory_gb"
+                       name="spec_memory_gb" placeholder="e.g. 16">
+            </div>
+            <div class="col-md-3">
+                <label for="spec_iops" class="form-label">IOPS</label>
+                <input type="text" class="form-control" id="spec_iops"
+                       name="spec_iops" placeholder="e.g. 3000">
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-md-9">
+                <label for="spec_notes" class="form-label">Notes</label>
+                <input type="text" class="form-control" id="spec_notes"
+                       name="spec_notes" placeholder="e.g. Snowflake Postgres XS instance">
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg" {% if active_run %}disabled{% endif %}>
+        Start Benchmark
+    </button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleScenario() {
+    const mode = document.querySelector('input[name="scenario_mode"]:checked').value;
+    document.getElementById('builtin_section').style.display = mode === 'builtin' ? '' : 'none';
+    document.getElementById('mixer_section').style.display = mode === 'mixer' ? '' : 'none';
+    document.getElementById('custom_section').style.display = mode === 'custom' ? '' : 'none';
+}
+
+function updateCustomRatio() {
+    const val = document.getElementById('custom_read_ratio').value;
+    document.getElementById('custom_ratio_display').textContent =
+        val + '% Read / ' + (100 - val) + '% Write';
+}
+
+function updateRatio() {
+    const val = document.getElementById('read_ratio').value;
+    document.getElementById('ratio_display').textContent =
+        val + '% Read / ' + (100 - val) + '% Write';
+}
+
+function toggleInit() {
+    const checked = document.getElementById('initialize').checked;
+    document.getElementById('init_section').style.display = checked ? '' : 'none';
+}
+</script>
+{% endblock %}

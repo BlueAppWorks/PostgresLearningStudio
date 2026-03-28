@@ -1,0 +1,618 @@
+{% extends "base.html" %}
+{% block title %}pg_lake Demos - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/pg-lake/">pg_lake</a></li>
+    <li class="breadcrumb-item active">Demos</li>
+</ol></nav>
+
+<h2>{{ t('lake.demos.title') }}</h2>
+
+{% if not pg_lake_status.installed %}
+<div class="alert alert-warning mb-3">
+    pg_lake is not installed. <a href="/pg-lake/setup" class="alert-link">Complete the Getting Started guide</a> first.
+</div>
+{% endif %}
+
+<!-- S3 path display -->
+<div class="card mb-4">
+    <div class="card-header"><h6 class="mb-0">S3 Configuration</h6></div>
+    <div class="card-body">
+        <div class="alert alert-light border mb-0">
+            <strong>Where does data go?</strong>
+            <p class="small mb-2">All Iceberg tables in these demos use the <code>default_location_prefix</code> set in the <a href="/pg-lake/setup">Getting Started guide (Step 9)</a>. pg_lake automatically manages the S3 path — you don't need to specify it per table.</p>
+            <table class="table table-sm table-borderless mb-0" style="font-size:0.85rem">
+                <tr>
+                    <td style="width:200px"><span class="badge bg-primary">default_location_prefix</span></td>
+                    <td><code id="displayDefaultPrefix">loading...</code></td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Reset button -->
+<div class="mb-4">
+    <button class="btn btn-outline-danger btn-sm" data-bs-toggle="collapse" data-bs-target="#resetPanel">Show Reset</button>
+    <div class="collapse mt-2" id="resetPanel">
+        <pre class="bg-dark text-light p-3 rounded"><code id="resetSql">-- Clean up pg_incremental pipeline
+DELETE FROM incremental.time_interval_pipelines WHERE pipeline_name = 'events_to_archive';
+DELETE FROM incremental.pipelines WHERE pipeline_name = 'events_to_archive';
+
+-- Drop demo schemas
+DROP SCHEMA IF EXISTS demo CASCADE;</code></pre>
+        <button class="btn btn-outline-danger btn-sm" onclick="runQuery('resetSql', 'resetResult')">Reset All Demos</button>
+        <div id="resetResult"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Demo 1: Iceberg Table Basics                              -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Demo 1: Iceberg Table — Create & Query</h5>
+        <button class="btn btn-outline-primary btn-sm" onclick="runSetup()">Setup</button>
+    </div>
+    <div class="card-body">
+        <p>Create an Iceberg table, INSERT sample data, and run queries. The table looks and feels like a normal PostgreSQL table, but data is stored as <strong>Parquet files on S3</strong> with Iceberg metadata.</p>
+        <div class="alert alert-secondary py-2 small"><span class="badge bg-primary">default_location_prefix</span> Data is written to: <code id="demo1Path">loading...</code></div>
+        <div id="setupResult"></div>
+
+        <div class="alert alert-light border mt-3">
+            <strong>What Setup does:</strong>
+            <ol class="mb-0 small">
+                <li><code>CREATE TABLE ... USING iceberg</code> — creates an Iceberg table. Data lives on S3, not local disk.</li>
+                <li><code>WITH (partition_by = 'day(event_date)')</code> — pg_lake organizes Parquet files by day, enabling efficient date-range queries.</li>
+                <li>INSERT 50,000 sample events spanning 60 days.</li>
+            </ol>
+        </div>
+
+        <div class="alert alert-info small">
+            <strong>Check S3:</strong> After Setup, open <strong>AWS Console → S3</strong> and navigate to your bucket. You'll see a directory structure like <code>s3://bucket/.../demo/events/.../data/</code> with UUID-named folders containing Parquet files. This confirms PostgreSQL INSERT actually wrote data to S3.
+        </div>
+
+        <h6>Query: Daily event counts</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo1Sql">SELECT date_trunc('day', event_date) AS day,
+       count(*) AS events,
+       count(DISTINCT region) AS regions,
+       avg(amount)::numeric(10,2) AS avg_amount
+FROM demo.events_hot
+WHERE event_date >= now() - interval '7 days'
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="runQuery('demo1Sql', 'demo1Result')">Run Query</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo1Sql', 'demo1Result')">EXPLAIN</button>
+        </div>
+        <div id="demo1Result"></div>
+
+        <div class="alert alert-light border mt-3 small">
+            <strong>Reading the EXPLAIN output:</strong> You'll see <code>Custom Scan (Query Pushdown) / Engine: DuckDB / READ_PARQUET</code> — this means pg_lake pushed the query down to DuckDB which reads Parquet files directly from S3. The <code>Filters:</code> line shows the date range was pushed down too, so only relevant partitions are scanned.
+        </div>
+
+        <h6>Single-row operations (INSERT, UPDATE, DELETE)</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo1Dml">-- INSERT a single event
+INSERT INTO demo.events_hot (event_date, region, category, amount, status)
+VALUES (now(), 'Tokyo', 'manual_test', 999.99, 'active');
+
+-- UPDATE it
+UPDATE demo.events_hot SET amount = 1234.56
+WHERE category = 'manual_test' AND region = 'Tokyo';
+
+-- Verify
+SELECT * FROM demo.events_hot WHERE category = 'manual_test';
+
+-- DELETE it
+DELETE FROM demo.events_hot WHERE category = 'manual_test';</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo1Dml', 'demo1DmlResult')">Run</button>
+        <div id="demo1DmlResult"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Demo 2: EXPLAIN — Date Range & Performance                -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Demo 2: Execution Plans — Date Range & DuckDB Pushdown</h5></div>
+    <div class="card-body">
+        <p>Compare execution plans and response times as you widen the date range. pg_lake's Iceberg tables push filters down to DuckDB, which reads only the relevant Parquet partitions from S3.</p>
+
+        <h6>A: Last 1 day (narrow range, few partitions)</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo2a">SELECT region, count(*), avg(amount)::numeric(10,2) AS avg_amount
+FROM demo.events_hot
+WHERE event_date >= now() - interval '1 day'
+GROUP BY region ORDER BY count DESC;</code></pre>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="runQuery('demo2a', 'demo2aR')">Run</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo2a', 'demo2aR')">EXPLAIN ANALYZE</button>
+        </div>
+        <div id="demo2aR"></div>
+
+        <h6>B: Last 7 days</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo2b">SELECT region, count(*), avg(amount)::numeric(10,2) AS avg_amount
+FROM demo.events_hot
+WHERE event_date >= now() - interval '7 days'
+GROUP BY region ORDER BY count DESC;</code></pre>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="runQuery('demo2b', 'demo2bR')">Run</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo2b', 'demo2bR')">EXPLAIN ANALYZE</button>
+        </div>
+        <div id="demo2bR"></div>
+
+        <h6>C: Last 30 days</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo2c">SELECT region, count(*), avg(amount)::numeric(10,2) AS avg_amount
+FROM demo.events_hot
+WHERE event_date >= now() - interval '30 days'
+GROUP BY region ORDER BY count DESC;</code></pre>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="runQuery('demo2c', 'demo2cR')">Run</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo2c', 'demo2cR')">EXPLAIN ANALYZE</button>
+        </div>
+        <div id="demo2cR"></div>
+
+        <h6>D: Full table scan (no filter)</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo2d">SELECT region, count(*), avg(amount)::numeric(10,2) AS avg_amount
+FROM demo.events_hot
+GROUP BY region ORDER BY count DESC;</code></pre>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="runQuery('demo2d', 'demo2dR')">Run</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo2d', 'demo2dR')">EXPLAIN ANALYZE</button>
+        </div>
+        <div id="demo2dR"></div>
+
+        <div class="alert alert-light border small">
+            <strong>What to observe:</strong>
+            <ul class="mb-0">
+                <li>All queries use <code>DuckDB / READ_PARQUET</code> — pg_lake pushes the entire query to DuckDB</li>
+                <li>The <code>Filters:</code> line changes with each date range — DuckDB only reads matching Parquet partitions</li>
+                <li><code>Estimated Cardinality</code> increases as the range widens</li>
+                <li>Execution time grows with wider ranges (more Parquet files to read from S3)</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- pg_incremental / pg_cron Primer                            -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">pg_incremental & pg_cron — Continuous Sync Tools</h5></div>
+    <div class="card-body">
+        <p>Demo 3 uses two PostgreSQL extensions to continuously sync data from a heap table to an Iceberg table:</p>
+
+        <table class="table table-sm table-hover">
+            <thead><tr><th>Extension</th><th>Role</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td><code>pg_incremental</code></td>
+                    <td>Tracks which time windows have been processed and runs an INSERT...SELECT command for each new window. Uses <code>$1</code> (start) and <code>$2</code> (end) parameters. Exactly-once semantics — progress and data are committed in the same transaction.</td>
+                </tr>
+                <tr>
+                    <td><code>pg_cron</code></td>
+                    <td>Schedules pg_incremental pipelines to run automatically at intervals (e.g., every minute). Similar to Unix cron but runs inside PostgreSQL. <br><small class="text-muted">Note: pg_cron must be created in the <code>postgres</code> database. If unavailable, pipelines can be run manually with <code>CALL incremental.execute_pipeline()</code>.</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="alert alert-light border small">
+            <strong>Pipeline types in pg_incremental:</strong>
+            <ul class="mb-0">
+                <li><strong>Time interval pipeline</strong> — processes data in time windows ($1=start, $2=end). Best for time-series data.</li>
+                <li><strong>Sequence pipeline</strong> — processes data by ID ranges. Best for tables with auto-increment keys.</li>
+                <li><strong>File list pipeline</strong> — processes new files on S3. Best for file-based ingestion.</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Demo 3: Real-Time Iceberg Sync                            -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Demo 3: Real-Time Hot → Iceberg Sync</h5></div>
+    <div class="card-body">
+        <p>Build the <strong>Hot (heap) + Archive (Iceberg)</strong> pattern. Frequent writes go to a heap table, and pg_incremental continuously syncs data to an Iceberg archive. A VIEW unifies both for transparent querying.</p>
+
+        <div class="alert alert-light border small">
+            <strong>Architecture:</strong>
+            <pre class="mb-0" style="font-size:0.78rem">[App]
+  ↓ INSERT/UPDATE
+[events_hot]  (heap — fast writes, recent data)
+  ↓ pg_incremental (every 1 minute)
+[event_archive]  (Iceberg — S3, long-term storage)
+
+[events_all]  (VIEW = events_hot UNION ALL event_archive_past)
+  ↑ PostgreSQL reads via this VIEW
+
+[Snowflake] → reads event_archive directly (Iceberg on S3)</pre>
+        </div>
+
+        <!-- Step 1: Create tables -->
+        <h6>Step 1: Create heap + Iceberg tables + VIEW</h6>
+        <p class="small text-muted">The heap table receives live writes. The Iceberg table stores the archive on S3. The VIEW combines them for transparent reads.</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step1">-- Hot table (heap — fast writes)
+CREATE TABLE IF NOT EXISTS demo.events_hot_live (
+    event_id    BIGSERIAL,
+    event_date  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    region      TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    amount      NUMERIC(10,2) NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'active'
+);
+
+-- Archive table (Iceberg — S3 storage)
+CREATE TABLE IF NOT EXISTS demo.event_archive (
+    event_id    BIGINT,
+    event_date  TIMESTAMPTZ NOT NULL,
+    region      TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    amount      NUMERIC(10,2) NOT NULL,
+    status      TEXT NOT NULL
+) USING iceberg;
+
+-- VIEW: archive data older than today (avoids overlap with hot)
+CREATE OR REPLACE VIEW demo.event_archive_past AS
+SELECT * FROM demo.event_archive
+WHERE event_date < CURRENT_DATE;
+
+-- Unified VIEW: hot + past archive
+CREATE OR REPLACE VIEW demo.events_all AS
+SELECT event_id, event_date, region, category, amount, status FROM demo.events_hot_live
+UNION ALL
+SELECT * FROM demo.event_archive_past;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo3Step1', 'demo3R1')">Run</button>
+        <div id="demo3R1"></div>
+
+        <!-- Step 2: Insert sample data into hot -->
+        <h6>Step 2: Insert sample data into hot table</h6>
+        <p class="small text-muted">Simulate 60 days of events in the heap table. In production, this data comes from the application.</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step2">INSERT INTO demo.events_hot_live (event_date, region, category, amount, status)
+SELECT
+    now() - (random() * interval '60 days'),
+    (ARRAY['Tokyo','Osaka','Nagoya','Fukuoka','Sapporo'])[1 + (i % 5)],
+    (ARRAY['purchase','refund','subscription','cancellation'])[1 + (i % 4)],
+    (random() * 10000)::numeric(10,2),
+    (ARRAY['active','completed','pending','cancelled'])[1 + (i % 4)]
+FROM generate_series(1, 100000) AS s(i);
+
+SELECT count(*) AS hot_rows FROM demo.events_hot_live;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo3Step2', 'demo3R2')">Run</button>
+        <div id="demo3R2"></div>
+
+        <!-- Step 3: Initial bulk sync -->
+        <h6>Step 3: Initial bulk sync (hot → archive)</h6>
+        <p class="small text-muted">Copy all existing data from hot to the Iceberg archive in one operation. This is a one-time bulk load — incremental sync handles new data from here on.</p>
+
+        <p class="small"><strong>3a:</strong> Check archive before sync (should be 0 rows):</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step3a">SELECT count(*) AS archive_rows FROM demo.event_archive;</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="runQuery('demo3Step3a', 'demo3R3a')">Run</button>
+        <div id="demo3R3a"></div>
+
+        <p class="small"><strong>3b:</strong> Bulk copy all rows:</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step3b">INSERT INTO demo.event_archive (event_id, event_date, region, category, amount, status)
+SELECT event_id, event_date, region, category, amount, status
+FROM demo.events_hot_live;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo3Step3b', 'demo3R3b')">Run</button>
+        <div id="demo3R3b"></div>
+
+        <p class="small"><strong>3c:</strong> Verify both tables have the same count:</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step3c">SELECT 'hot' AS source, count(*) AS rows FROM demo.events_hot_live
+UNION ALL
+SELECT 'archive', count(*) FROM demo.event_archive;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo3Step3c', 'demo3R3c')">Run</button>
+        <div id="demo3R3c"></div>
+
+        <!-- Step 4: Set up incremental sync -->
+        <h6>Step 4: Set up incremental sync (pg_incremental + pg_cron)</h6>
+        <p class="small text-muted">
+            Now create a pipeline that syncs <strong>new</strong> data going forward. <code>start_time = now()</code> because historical data is already synced.
+            <code>time_interval = '1 minute'</code> means the pipeline processes data in 1-minute windows.
+            <code>$1</code> and <code>$2</code> are the window boundaries — pg_incremental advances these automatically.
+        </p>
+
+        <p class="small"><strong>4a:</strong> Create the pipeline:</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step4a">CREATE EXTENSION IF NOT EXISTS pg_incremental CASCADE;
+
+SELECT incremental.create_time_interval_pipeline(
+    pipeline_name  := 'events_to_archive',
+    time_interval  := '1 minute'::interval,
+    command        := $$
+        INSERT INTO demo.event_archive (event_id, event_date, region, category, amount, status)
+        SELECT event_id, event_date, region, category, amount, status
+        FROM demo.events_hot_live
+        WHERE event_date >= $1 AND event_date < $2
+    $$,
+    schedule       := NULL,
+    start_time     := now()::timestamptz
+);</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo3Step4a', 'demo3R4a')">Run</button>
+        <div id="demo3R4a"></div>
+
+        <p class="small"><strong>4b:</strong> Enable automatic sync with pg_cron (runs every 1 minute):</p>
+        <div class="alert alert-light border small">
+            <strong>How this works:</strong> pg_cron is installed in the <code>postgres</code> database (a PostgreSQL requirement).
+            It schedules a job that connects to the <code>benchmark</code> database every minute and runs <code>CALL incremental.execute_pipeline()</code>.
+        </div>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-success btn-sm" onclick="setupCron()">Enable Auto-Sync (1 min)</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="removeCron()">Disable Auto-Sync</button>
+        </div>
+        <div id="demo3CronResult"></div>
+
+        <!-- Step 5: Query via unified VIEW -->
+        <h6>Step 5: Query via unified VIEW</h6>
+        <p class="small text-muted">The <code>events_all</code> VIEW combines hot (heap) and archive (Iceberg). Applications query this single VIEW.</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step5">-- Weekly summary across hot + archive
+SELECT date_trunc('week', event_date) AS week,
+       count(*) AS events,
+       sum(amount)::numeric(12,2) AS total_amount
+FROM demo.events_all
+GROUP BY 1 ORDER BY 1;</code></pre>
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="runQuery('demo3Step5', 'demo3R5')">Run</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runExplain('demo3Step5', 'demo3R5')">EXPLAIN</button>
+        </div>
+        <div id="demo3R5"></div>
+
+        <!-- Step 6: Real-time sync experience -->
+        <h6>Step 6: Experience real-time sync (Hot → Archive)</h6>
+        <p class="small text-muted">This is the core of the demo. INSERT into the hot table, wait ~1 minute, and confirm the data appears in the Iceberg archive automatically.</p>
+
+        <p class="small"><strong>6a:</strong> INSERT distinctive rows into hot:</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step6a">INSERT INTO demo.events_hot_live (event_date, region, category, amount, status)
+VALUES
+    (now(), 'Tokyo',   'demo_live', 99999.00, 'new'),
+    (now(), 'Osaka',   'demo_live', 88888.00, 'new'),
+    (now(), 'Sapporo', 'demo_live', 77777.00, 'new');
+
+-- Confirm in hot
+SELECT event_id, event_date, region, amount, status
+FROM demo.events_hot_live WHERE category = 'demo_live' ORDER BY event_date;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo3Step6a', 'demo3R6a')">Run</button>
+        <div id="demo3R6a"></div>
+
+        <div class="alert alert-info small">
+            <strong>Wait ~1 minute</strong> for pg_cron to sync, then check the archive:
+        </div>
+
+        <p class="small"><strong>6b:</strong> Check archive (should appear after ~1 minute):</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step6b">SELECT event_id, event_date, region, amount, status
+FROM demo.event_archive WHERE category = 'demo_live' ORDER BY event_date;</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('demo3Step6b', 'demo3R6b')">Run</button>
+        <div id="demo3R6b"></div>
+
+        <p class="small"><strong>6c:</strong> Also visible via unified VIEW:</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step6c">SELECT event_id, event_date, region, amount, status
+FROM demo.events_all WHERE category = 'demo_live' ORDER BY event_date;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo3Step6c', 'demo3R6c')">Run</button>
+        <div id="demo3R6c"></div>
+
+        <p class="small"><strong>6d:</strong> Clean up:</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step6d">DELETE FROM demo.events_hot_live WHERE category = 'demo_live';</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="runQuery('demo3Step6d', 'demo3R6d')">Run</button>
+        <div id="demo3R6d"></div>
+
+        <div class="alert alert-warning small">
+            <strong>Note:</strong> pg_incremental syncs <strong>INSERTs only</strong> (append-only pipeline). UPDATEs and DELETEs on the hot table are <strong>not</strong> propagated to the archive. If historical data needs correction, UPDATE the archive directly (Step 7).
+        </div>
+
+        <!-- Step 7: Rare update on archive -->
+        <h6>Step 7: Rare update on archive (exception operation)</h6>
+        <p class="small text-muted">Normally, only <code>events_hot_live</code> receives writes. But if historical data needs correction, you can UPDATE the Iceberg archive directly:</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo3Step6">-- Correct a past event directly on the archive
+UPDATE demo.event_archive
+SET status = 'corrected', amount = 0
+WHERE event_date < now() - interval '30 days'
+  AND category = 'refund'
+  AND region = 'Tokyo'
+  AND event_id IN (
+      SELECT event_id FROM demo.event_archive
+      WHERE event_date < now() - interval '30 days'
+        AND category = 'refund' AND region = 'Tokyo'
+      LIMIT 5
+  );
+
+-- Verify
+SELECT event_id, event_date, status, amount
+FROM demo.event_archive
+WHERE status = 'corrected'
+ORDER BY event_date LIMIT 5;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('demo3Step6', 'demo3R6')">Run</button>
+        <div id="demo3R6"></div>
+
+        <div class="alert alert-warning small">
+            <strong>Note:</strong> Iceberg UPDATEs are heavier than heap UPDATEs (they rewrite Parquet files on S3). Keep archive direct updates to exceptional corrections only.
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Demo 4: Snowflake Iceberg READ                            -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Demo 4: Snowflake Reads the Same Iceberg Data</h5></div>
+    <div class="card-body">
+        <p>Snowflake can read the Iceberg tables that pg_lake wrote to S3 — <strong>no ETL pipeline needed</strong>. This is the "Zero ETL" promise: PostgreSQL writes, Snowflake reads, same data, same S3 location.</p>
+
+        <div class="alert alert-light border small">
+            <strong>Prerequisites:</strong> Complete the <a href="/pg-lake/setup">Getting Started guide Steps 10-13</a> (Snowflake IAM role, External Volume, Catalog Integration). The SQL below assumes those are in place.
+        </div>
+
+        <h6>Step 1: Find the metadata path</h6>
+        <p class="small text-muted">Snowflake needs the path to the Iceberg metadata file. Find it in AWS Console → S3 → your bucket → navigate to <code>event_archive</code>'s metadata folder. Copy the path of the latest <code>.metadata.json</code> file.</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-8">
+                <label class="form-label">Metadata File Path <small class="text-muted">(relative to STORAGE_BASE_URL)</small></label>
+                <input type="text" class="form-control" id="cfgMetadataPathDemo"
+                    placeholder="frompg/tables/benchmark/demo/event_archive/XXXXX/metadata/00001-xxxx.metadata.json"
+                    oninput="regenerateDemo4Sql()">
+            </div>
+        </div>
+
+        <h6>Step 2: Register and query in Snowflake</h6>
+        <p class="small text-muted">Run the following SQL in a <strong>Snowflake Worksheet</strong> (not in this app). Values from the Getting Started guide are used.</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="demo4Sql">-- Fill in the metadata path above to generate this SQL</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="copyEl('demo4Sql')">Copy</button>
+
+        <div class="alert alert-info small">
+            <strong>After running new data through the pipeline:</strong> Run <code>ALTER ICEBERG TABLE ... REFRESH 'new/metadata/path.json'</code> in Snowflake to pick up the latest data. Find the new metadata path in S3.
+            <br><br>
+            <strong>Future:</strong> When pg_lake adds REST Catalog (Polaris) support (<a href="https://github.com/Snowflake-Labs/pg_lake/issues/94" target="_blank">Issue #94</a>), Snowflake will auto-discover metadata changes without manual REFRESH.
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function resultTable(data) {
+    if (!data.columns || !data.rows) return '';
+    let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+    html += '<thead><tr>' + data.columns.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+    for (const row of data.rows) {
+        html += '<tr>' + row.map(v => `<td>${v ?? ''}</td>`).join('') + '</tr>';
+    }
+    return html + '</tbody></table></div>';
+}
+
+function runSetup() {
+    const el = document.getElementById('setupResult');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Setting up...';
+    fetch('/pg-lake/run-setup', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+            let html = '<div class="alert alert-info"><strong>Results:</strong><ul class="mb-0">';
+            for (const r of data.results) {
+                const icon = r.status === 'ok' ? '✅' : '❌';
+                html += `<li>${icon} ${r.label} (${r.time_ms}ms)`;
+                if (r.error) html += ` — <span class="text-danger">${r.error}</span>`;
+                if (r.value) html += ` — <code>${r.value}</code>`;
+                html += '</li>';
+            }
+            el.innerHTML = html + '</ul></div>';
+        })
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function runQuery(sqlElId, resultElId) {
+    const sql = document.getElementById(sqlElId).textContent;
+    const el = document.getElementById(resultElId);
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+        if (data.message) { el.innerHTML = `<div class="alert alert-success">${data.message}</div>`; return; }
+        el.innerHTML = resultTable(data);
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function runExplain(sqlElId, resultElId) {
+    const sql = 'EXPLAIN ANALYZE\n' + document.getElementById(sqlElId).textContent;
+    const el = document.getElementById(resultElId);
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+        if (data.rows) {
+            const plan = data.rows.map(r => r[0]).join('\n');
+            el.innerHTML = `<pre class="bg-dark text-light p-3 rounded"><code>${plan}</code></pre>`;
+        }
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function copyEl(id) {
+    const text = document.getElementById(id)?.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+        event.target.textContent = 'Copied!';
+        setTimeout(() => event.target.textContent = 'Copy', 1500);
+    });
+}
+
+// pg_cron setup/remove
+function setupCron() {
+    const el = document.getElementById('demo3CronResult');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Setting up pg_cron...';
+    fetch('/pg-lake/setup-cron', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+            let html = '<div class="alert alert-info"><ul class="mb-0">';
+            for (const r of data.results) {
+                const icon = r.status === 'ok' ? '✅' : '❌';
+                html += `<li>${icon} ${r.label}`;
+                if (r.error) html += ` — <span class="text-danger">${r.error}</span>`;
+                if (r.value) html += ` — <code>${r.value}</code>`;
+                html += '</li>';
+            }
+            el.innerHTML = html + '</ul></div>';
+        })
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function removeCron() {
+    const el = document.getElementById('demo3CronResult');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+    fetch('/pg-lake/remove-cron', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            else el.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+        })
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+// Demo 4 SQL generation
+function regenerateDemo4Sql() {
+    const metadataPath = document.getElementById('cfgMetadataPathDemo')?.value
+        || 'frompg/tables/benchmark/demo/event_archive/XXXXX/metadata/00001-xxxx.metadata.json';
+
+    document.getElementById('demo4Sql').textContent =
+`-- Run in Snowflake Worksheet as ACCOUNTADMIN
+USE ROLE ACCOUNTADMIN;
+
+-- Register the Iceberg table (same data pg_lake wrote)
+CREATE OR REPLACE ICEBERG TABLE PG_LAKE_DEMO.ANALYTICS.EVENT_ARCHIVE
+    EXTERNAL_VOLUME = 'PG_LAKE_VOL'
+    CATALOG = 'PG_LAKE_CATALOG'
+    METADATA_FILE_PATH = '${metadataPath}';
+
+-- Query: weekly summary (same data as PostgreSQL's event_archive)
+SELECT date_trunc('week', event_date) AS week,
+       region, count(*) AS events,
+       sum(amount) AS total_amount
+FROM PG_LAKE_DEMO.ANALYTICS.EVENT_ARCHIVE
+GROUP BY 1, 2 ORDER BY 1, 2;
+
+-- After new data is synced, refresh metadata:
+-- ALTER ICEBERG TABLE PG_LAKE_DEMO.ANALYTICS.EVENT_ARCHIVE
+--     REFRESH '${metadataPath}';`;
+}
+
+// Fetch default_location_prefix on load
+fetch('/pg-lake/setup-info')
+    .then(r => r.json())
+    .then(data => {
+        const prefix = data.location_prefix || '(not set — complete Getting Started Step 9)';
+        document.getElementById('displayDefaultPrefix').textContent = prefix;
+        document.getElementById('demo1Path').textContent = prefix;
+    })
+    .catch(() => {});
+
+regenerateDemo4Sql();
+</script>
+{% endblock %}

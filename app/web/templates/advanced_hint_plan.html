@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}pg_hint_plan Demo - Postgres Learning Studio{% endblock %}
+
+{% block head %}
+<style>
+.sql-display { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px;
+               font-family: 'Consolas','Monaco',monospace; font-size: 0.85rem;
+               white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; }
+.result-box { background: var(--bs-tertiary-bg); padding: 12px; border-radius: 6px; font-size: 0.9rem; }
+.plan-box { background: #1a1a2e; color: #e0e0e0; padding: 12px; border-radius: 6px;
+            font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; overflow-x: auto; }
+.step-card { border-left: 3px solid var(--bs-warning); }
+.compare-card { border: 2px solid; }
+.compare-good { border-color: var(--bs-success); }
+.compare-bad { border-color: var(--bs-danger); }
+</style>
+{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/advanced">Advanced</a></li>
+    <li class="breadcrumb-item active">pg_hint_plan</li>
+</ol></nav>
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2>{{ t('hint.title') }}</h2>
+        <p class="text-muted">
+            {{ t('hint.intro') }}<br>
+            <small>{{ t('hint.intro_dev') }}</small>
+        </p>
+    </div>
+    <button class="btn btn-outline-success" id="btn-setup" onclick="showSetupSQL()">Setup (Create 700K rows)</button>
+</div>
+
+<!-- Setup SQL Preview -->
+<div id="setup-panel" class="card mb-4 d-none border-success">
+    <div class="card-header d-flex justify-content-between align-items-center bg-success bg-opacity-10">
+        <h6 class="mb-0">Setup SQL</h6>
+        <div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="copySetupSQL()" id="btn-copy">Copy All</button>
+            <button class="btn btn-success btn-sm ms-2" onclick="executeSetup()" id="btn-execute">Execute</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <pre id="setup-sql-content" class="sql-display mb-0" style="max-height:400px;border:none;border-radius:0"></pre>
+    </div>
+</div>
+<div id="setup-result" class="mb-4 d-none"></div>
+
+<!-- Scenario explanation -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('hint.scenario.title') }}</h5></div>
+    <div class="card-body">
+        <ol>
+            <li>{{ t('hint.scenario.step1') }}</li>
+            <li>{{ t('hint.scenario.step2') }}</li>
+            <li>{{ t('hint.scenario.step3') }}</li>
+            <li>{{ t('hint.scenario.step4') }}</li>
+            <li>{{ t('hint.scenario.step5') }}</li>
+            <li>{{ t('hint.scenario.step6') }}</li>
+        </ol>
+        <div class="alert alert-secondary mb-0">
+            {{ t('hint.scenario.note') }}<br>
+            {{ t('hint.scenario.prereq') }}
+            <br>{{ t('hint.scenario.sf_note') }}
+        </div>
+    </div>
+</div>
+
+<!-- Step 1: Check statistics -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('hint.step1.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('hint.step1.desc') }}</p>
+        <div class="sql-display">-- Check actual row counts / 実際の行数を確認
+SELECT status, COUNT(*) AS actual_count
+FROM hint_demo.orders GROUP BY status ORDER BY actual_count DESC;
+
+-- Check planner statistics (pg_stats) / プランナーの統計情報（pg_stats）
+SELECT most_common_vals, most_common_freqs
+FROM pg_stats
+WHERE schemaname = 'hint_demo' AND tablename = 'orders' AND attname = 'status';</div>
+        <button class="btn btn-primary mt-3" onclick="runStep1()">Run Step 1</button>
+        <div id="result-step1" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Step 2: Compare plans -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('hint.step2.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('hint.step2.desc') }}</p>
+        <button class="btn btn-warning mb-3" onclick="runBothPlans()">Run Both Plans</button>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="card compare-card compare-bad">
+                    <div class="card-header bg-danger bg-opacity-25">
+                        {{ t('hint.step2.no_hint') }}
+                    </div>
+                    <div class="card-body">
+                        <div class="sql-display" style="font-size:0.8rem">EXPLAIN ANALYZE
+SELECT count(*), avg(amount)
+FROM hint_demo.orders
+WHERE status = 'rush';</div>
+                        <div id="plan-no-hint" class="plan-box mt-2 d-none"></div>
+                        <div id="time-no-hint" class="mt-2 d-none"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card compare-card compare-good">
+                    <div class="card-header bg-success bg-opacity-25">
+                        {{ t('hint.step2.with_hint') }}
+                    </div>
+                    <div class="card-body">
+                        <div class="sql-display" style="font-size:0.8rem">/*+ SeqScan(orders) */
+EXPLAIN ANALYZE
+SELECT count(*), avg(amount)
+FROM hint_demo.orders
+WHERE status = 'rush';</div>
+                        <div id="plan-with-hint" class="plan-box mt-2 d-none"></div>
+                        <div id="time-with-hint" class="mt-2 d-none"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 3: Fix with ANALYZE -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('hint.step3.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('hint.step3.desc') }}</p>
+        <div class="sql-display">-- Update statistics / 統計情報を更新
+ANALYZE hint_demo.orders;
+
+-- Check if planner chooses the right plan without hints
+-- ヒントなしでも正しい計画を選ぶか確認
+EXPLAIN ANALYZE
+SELECT count(*), avg(amount)
+FROM hint_demo.orders
+WHERE status = 'rush';</div>
+        <button class="btn btn-primary mt-3" onclick="runStep3()">Run ANALYZE + Re-check</button>
+        <div id="result-step3" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Benchmark integration hint -->
+<div class="alert alert-info">
+    {{ t('hint.benchmark_tip') }}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const EXT = 'hint_plan';
+const LANG = '{{ lang }}';
+let _setupSQL = '';
+
+// i18n helper for JS messages
+const I18N = {
+    'actual_rows': {en: '{!! t("hint.js.actual_rows") !!}', ja: '{!! t("hint.js.actual_rows") !!}'}
+};
+
+// ── Hint query helper (uses /advanced/hint-query for same-session LOAD + SET) ──
+async function hintExec(sql, loadHint = true) {
+    const resp = await fetch('/advanced/hint-query', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ sql, load_hint_plan: loadHint })
+    });
+    return resp.json();
+}
+
+async function execSQL(sql) {
+    const resp = await fetch('/sql/execute', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ sql })
+    });
+    return resp.json();
+}
+
+function resultTable(data) {
+    if (data.error) return `<span class="text-danger">${data.error}</span>`;
+    if (data.message) return `<span class="text-success">${data.message}</span>`;
+    if (!data.columns) return '';
+    let html = '<table class="table table-sm table-bordered mb-1"><thead><tr>';
+    data.columns.forEach(c => html += `<th>${c}</th>`);
+    html += '</tr></thead><tbody>';
+    (data.rows || []).forEach(r => {
+        html += '<tr>';
+        r.forEach(v => html += `<td>${v === null ? '<em>NULL</em>' : v}</td>`);
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    return html;
+}
+
+function showResult(id, html) {
+    const el = document.getElementById(id);
+    el.innerHTML = html; el.classList.remove('d-none');
+}
+
+function extractPlanTime(rows) {
+    if (!rows || rows.length === 0) return null;
+    const lastRow = rows[rows.length - 1][0];
+    const match = lastRow.match(/Execution Time: ([\d.]+) ms/);
+    return match ? parseFloat(match[1]) : null;
+}
+
+// ── Setup preview / copy / execute ──
+async function showSetupSQL() {
+    const resp = await fetch(`/advanced/setup-sql/${EXT}`);
+    const data = await resp.json();
+    let sql = '';
+    data.steps.forEach(s => { sql += `-- [${s.label}]\n${s.sql}\n\n`; });
+    _setupSQL = sql.trim();
+    document.getElementById('setup-sql-content').textContent = _setupSQL;
+    document.getElementById('setup-panel').classList.remove('d-none');
+}
+
+function copySetupSQL() {
+    navigator.clipboard.writeText(_setupSQL).then(() => {
+        const btn = document.getElementById('btn-copy');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy All', 2000);
+    });
+}
+
+async function executeSetup() {
+    const btn = document.getElementById('btn-execute');
+    btn.disabled = true; btn.textContent = 'Executing (700K rows)...';
+    try {
+        const resp = await fetch(`/advanced/setup/${EXT}`, { method: 'POST' });
+        const data = await resp.json();
+        let html = '<div class="alert alert-info"><strong>Results:</strong><ul class="mb-0">';
+        let loadTestOk = false;
+        let extensionAvailable = false;
+        data.results.forEach(r => {
+            const ok = r.status === 'ok';
+            html += `<li class="${ok ? 'text-success' : 'text-danger'}">${ok ? '&#10003;' : '&#10007;'} ${r.label} (${r.time_ms}ms)`;
+            if (r.error) html += ` &mdash; <small>${r.error}</small>`;
+            if (r.value) html += ` &mdash; <code>${r.value}</code>`;
+            html += '</li>';
+            if (r.label.includes('Test LOAD') && r.status === 'ok') loadTestOk = true;
+            if (r.label.includes('pg_available_extensions') && r.status === 'ok') extensionAvailable = true;
+        });
+        html += '</ul></div>';
+        if (loadTestOk) {
+            html += '<div class="alert alert-success">{{ t("hint.js.load_success") }}</div>';
+        } else if (extensionAvailable) {
+            html += '<div class="alert alert-warning">{{ t("hint.js.load_fail") }}<br><br>';
+            html += '<strong>Snowflake Postgres:</strong> ';
+            html += LANG === 'ja'
+                ? '現時点では <code>session_preload_libraries</code> に設定可能な値は <code>auto_explain</code> のみです。<code>pg_hint_plan</code> のサポートは Snowflake への機能リクエストが必要です。'
+                : 'Currently only <code>auto_explain</code> can be set in <code>session_preload_libraries</code>. <code>pg_hint_plan</code> support requires a feature request to Snowflake.';
+            html += '<br><small class="text-muted mt-2 d-block">';
+            html += 'RDS: Parameter Group / AlloyDB: Database Flag / Self-managed: postgresql.conf</small>';
+            html += '</div>';
+        } else {
+            html += '<div class="alert alert-danger">{{ t("hint.js.not_available") }}</div>';
+        }
+        showResult('setup-result', html);
+    } catch (e) {
+        showResult('setup-result', `<div class="alert alert-danger">${e}</div>`);
+    }
+    btn.disabled = false; btn.textContent = 'Execute';
+}
+
+// ── Step 1: Check stats ──
+async function runStep1() {
+    const actual = await execSQL(
+        "SELECT status, COUNT(*) AS actual_count FROM hint_demo.orders GROUP BY status ORDER BY actual_count DESC"
+    );
+    const stats = await execSQL(
+        "SELECT most_common_vals, most_common_freqs FROM pg_stats WHERE schemaname = 'hint_demo' AND tablename = 'orders' AND attname = 'status'"
+    );
+    let html = '{{ t("hint.js.actual_rows") }}<br>' + resultTable(actual);
+    html += '<br>{{ t("hint.js.planner_stats") }}<br>' + resultTable(stats);
+    html += '<br><div class="alert alert-warning mb-0">';
+    html += '{{ t("hint.js.stats_warning") }}';
+    html += '</div>';
+    showResult('result-step1', html);
+}
+
+// ── Step 2: Compare plans (both at once) ──
+async function runBothPlans() {
+    ['plan-no-hint','time-no-hint','plan-with-hint','time-with-hint'].forEach(id => {
+        document.getElementById(id).classList.add('d-none');
+    });
+
+    const noHintSQL = "EXPLAIN ANALYZE SELECT count(*), avg(amount) FROM hint_demo.orders WHERE status = 'rush'";
+    const withHintSQL = "/*+ SeqScan(orders) */\nEXPLAIN ANALYZE SELECT count(*), avg(amount) FROM hint_demo.orders WHERE status = 'rush'";
+
+    const [noHint, withHint] = await Promise.all([
+        hintExec(noHintSQL),
+        hintExec(withHintSQL)
+    ]);
+
+    const noHintEl = document.getElementById('plan-no-hint');
+    const noHintTimeEl = document.getElementById('time-no-hint');
+    if (noHint.rows) {
+        noHintEl.textContent = noHint.rows.map(r => r[0]).join('\n');
+        noHintEl.classList.remove('d-none');
+        const t = extractPlanTime(noHint.rows);
+        if (t !== null) {
+            noHintTimeEl.innerHTML = `<span class="badge bg-danger fs-6">Execution: ${t} ms</span>`;
+            noHintTimeEl.classList.remove('d-none');
+        }
+    } else if (noHint.error) {
+        noHintEl.textContent = noHint.error;
+        noHintEl.classList.remove('d-none');
+    }
+
+    const withHintEl = document.getElementById('plan-with-hint');
+    const withHintTimeEl = document.getElementById('time-with-hint');
+    if (withHint.rows) {
+        withHintEl.textContent = withHint.rows.map(r => r[0]).join('\n');
+        withHintEl.classList.remove('d-none');
+        const t = extractPlanTime(withHint.rows);
+        if (t !== null) {
+            withHintTimeEl.innerHTML = `<span class="badge bg-success fs-6">Execution: ${t} ms</span>`;
+            withHintTimeEl.classList.remove('d-none');
+        }
+    } else if (withHint.error) {
+        withHintEl.textContent = withHint.error;
+        withHintEl.classList.remove('d-none');
+    }
+}
+
+// ── Step 3: ANALYZE fix ──
+async function runStep3() {
+    await hintExec("ANALYZE hint_demo.orders", false);
+    const data = await hintExec(
+        "EXPLAIN ANALYZE SELECT count(*), avg(amount) FROM hint_demo.orders WHERE status = 'rush'",
+        true
+    );
+
+    let html = '{{ t("hint.js.after_analyze") }}<br>';
+    if (data.rows) {
+        html += '<div class="plan-box">' + data.rows.map(r => r[0]).join('\n') + '</div>';
+        const t = extractPlanTime(data.rows);
+        if (t !== null) {
+            html += `<br><span class="badge bg-info fs-6">Execution: ${t} ms</span>`;
+        }
+        html += '<br><div class="alert alert-success mt-2 mb-0">';
+        html += '{{ t("hint.js.analyze_success") }}';
+        html += '</div>';
+    } else if (data.error) {
+        html += `<span class="text-danger">${data.error}</span>`;
+    }
+    showResult('result-step3', html);
+}
+</script>
+{% endblock %}

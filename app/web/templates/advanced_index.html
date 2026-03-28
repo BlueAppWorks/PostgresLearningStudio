@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Advanced Extensions - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">{{ t('adv.title') }}</h2>
+<p class="text-muted mb-4">
+    {{ t('adv.intro') }}
+</p>
+
+<div class="row g-4">
+    <!-- PostGIS -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">PostGIS</h5>
+                <span class="badge {{ 'bg-success' if extensions.get('postgis', {}).get('installed') else 'bg-secondary' }} mb-2">
+                    {{ extensions.get('postgis', {}).get('installed') or extensions.get('postgis', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text">
+                    {{ t('adv.postgis.desc') }}
+                </p>
+                <ul class="small text-muted">
+                    <li>{{ t('adv.postgis.feat1') }}</li>
+                    <li>{{ t('adv.postgis.feat2') }}</li>
+                    <li>{{ t('adv.postgis.feat3') }}</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    {{ t('adv.postgis.license') }}
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://postgis.net/" target="_blank" class="text-muted small">postgis.net</a>
+                <a href="/advanced/postgis" class="btn btn-primary btn-sm">Demo</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- pg_hint_plan -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">pg_hint_plan</h5>
+                <span class="badge {{ 'bg-success' if extensions.get('pg_hint_plan', {}).get('installed') else 'bg-secondary' }} mb-2">
+                    {{ extensions.get('pg_hint_plan', {}).get('installed') or extensions.get('pg_hint_plan', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text">
+                    {{ t('adv.hint.desc') }}
+                </p>
+                <ul class="small text-muted">
+                    <li>{{ t('adv.hint.feat1') }}</li>
+                    <li>{{ t('adv.hint.feat2') }}</li>
+                    <li>{{ t('adv.hint.feat3') }}</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    {{ t('adv.hint.license') }}
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://github.com/ossc-db/pg_hint_plan" target="_blank" class="text-muted small">GitHub (ossc-db/pg_hint_plan)</a>
+                <a href="/advanced/hint-plan" class="btn btn-primary btn-sm">Demo</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- pgvector -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">pgvector</h5>
+                <span class="badge {{ 'bg-success' if extensions.get('vector', {}).get('installed') else 'bg-secondary' }} mb-2">
+                    {{ extensions.get('vector', {}).get('installed') or extensions.get('vector', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text">
+                    {{ t('adv.vector.desc') }}
+                </p>
+                <ul class="small text-muted">
+                    <li>{{ t('adv.vector.feat1') }}</li>
+                    <li>{{ t('adv.vector.feat2') }}</li>
+                    <li>{{ t('adv.vector.feat3') }}</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    {{ t('adv.vector.license') }}
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://github.com/pgvector/pgvector" target="_blank" class="text-muted small">GitHub (pgvector/pgvector)</a>
+                <a href="/advanced/pgvector" class="btn btn-primary btn-sm">Demo</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- pg_lake -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">pg_lake {% if t('adv.lake.title_badge') %}<span class="badge bg-warning text-dark">{{ t('adv.lake.title_badge') }}</span>{% endif %}</h5>
+                <span class="badge bg-secondary mb-2">
+                    {{ extensions.get('pg_lake', {}).get('available', 'N/A') }}
+                </span>
+                <p class="card-text">
+                    {{ t('adv.lake.desc') }}
+                </p>
+                <ul class="small">
+                    <li>{{ t('adv.lake.feat1') }}</li>
+                    <li>{{ t('adv.lake.feat2') }}</li>
+                    <li>{{ t('adv.lake.feat3') }}</li>
+                </ul>
+                <p class="small text-muted mb-0">
+                    {{ t('adv.lake.license') }}
+                </p>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" class="text-muted small">GitHub (Snowflake-Labs/pg_lake)</a>
+                <a href="/advanced/pg-lake" class="btn btn-primary btn-sm">Demo</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

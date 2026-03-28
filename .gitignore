@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Snowflake
+output/
+
+# Docker
+*.tar
+
+# Secrets
+*.p8
+*.pem
+.env
+deploy/deploy.env
+
+# Claude Code local settings
+.claude/
+
+# Internal docs / ideas (not for public)
+docs/ideas/
+
+# Internal memos
+ブラウザcache対策のApp側案.txt

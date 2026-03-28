@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+{% block title %}PostGIS Demo - Postgres Learning Studio{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/leaflet.min.css') }}" />
+<style>
+.map-container { height: 400px; border-radius: 8px; border: 1px solid var(--bs-border-color);
+                 position: relative; z-index: 0; background: #e8e8e8; }
+.map-fallback { display: flex; align-items: center; justify-content: center; height: 100%;
+                color: var(--bs-secondary-color); font-size: 0.9rem; }
+.sql-display { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px;
+               font-family: 'Consolas','Monaco',monospace; font-size: 0.85rem;
+               white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
+.result-box { background: var(--bs-tertiary-bg); padding: 12px; border-radius: 6px; font-size: 0.9rem; }
+.step-card { border-left: 3px solid var(--bs-primary); }
+</style>
+{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/advanced">Advanced</a></li>
+    <li class="breadcrumb-item active">PostGIS</li>
+</ol></nav>
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2>{{ t('postgis.title') }}</h2>
+        <p class="text-muted">
+            {{ t('postgis.intro') }}
+        </p>
+    </div>
+    <button class="btn btn-outline-success" id="btn-setup" onclick="showSetupSQL()">Setup</button>
+</div>
+
+<!-- Setup SQL Preview -->
+<div id="setup-panel" class="card mb-4 d-none border-success">
+    <div class="card-header d-flex justify-content-between align-items-center bg-success bg-opacity-10">
+        <h6 class="mb-0">Setup SQL</h6>
+        <div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="copySetupSQL()" id="btn-copy">Copy All</button>
+            <button class="btn btn-success btn-sm ms-2" onclick="executeSetup()" id="btn-execute">Execute</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <pre id="setup-sql-content" class="sql-display mb-0" style="max-height:400px;border:none;border-radius:0"></pre>
+    </div>
+</div>
+<div id="setup-result" class="mb-4 d-none"></div>
+
+<!-- Map -->
+<div id="map" class="map-container mb-4">
+    <div class="map-fallback" id="map-fallback">Loading map...</div>
+</div>
+
+<!-- Demo 1: INSERT point -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo1.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('postgis.demo1.desc') }}</p>
+        <div class="sql-display" id="sql-demo1">-- Insert Snowflake Tokyo Office / Snowflake Tokyo Office を INSERT
+INSERT INTO postgis_demo.points (name, category, geom) VALUES
+('Snowflake Tokyo Office', 'office',
+ ST_SetSRID(ST_MakePoint(139.77076, 35.67986), 4326))
+ON CONFLICT (name) DO NOTHING;
+
+-- Retrieve coordinates for map display / 地図表示用に座標を取得
+SELECT name, category,
+       ST_X(geom) AS lng, ST_Y(geom) AS lat
+FROM postgis_demo.points WHERE name = 'Snowflake Tokyo Office';</div>
+        <button class="btn btn-primary mt-3" onclick="runDemo1()">Run Demo 1</button>
+        <div id="result-demo1" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Demo 2: Multiple points -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo2.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('postgis.demo2.desc') }}</p>
+        <div class="sql-display" id="sql-demo2">-- Insert landmarks around Tokyo Station / 東京駅周辺のランドマークを INSERT
+INSERT INTO postgis_demo.points (name, category, geom) VALUES
+('東京駅', 'station', ST_SetSRID(ST_MakePoint(139.7671, 35.6812), 4326)),
+('日本橋', 'landmark', ST_SetSRID(ST_MakePoint(139.7745, 35.6839), 4326)),
+('銀座四丁目交差点', 'landmark', ST_SetSRID(ST_MakePoint(139.7649, 35.6714), 4326)),
+('皇居前広場', 'park', ST_SetSRID(ST_MakePoint(139.7528, 35.6852), 4326))
+ON CONFLICT (name) DO NOTHING;
+
+-- Retrieve all points / 全ポイントを取得
+SELECT name, category,
+       ST_X(geom) AS lng, ST_Y(geom) AS lat
+FROM postgis_demo.points ORDER BY id;</div>
+        <button class="btn btn-primary mt-3" onclick="runDemo2()">Run Demo 2</button>
+        <div id="result-demo2" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Demo 3: Line + Distance -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo3.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('postgis.demo3.desc') }}</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">{{ t('postgis.demo3.start') }}</label>
+                <select class="form-select" id="line-start" onchange="updateLineSQL()">
+                    <option value="139.7671,35.6812">東京駅</option>
+                    <option value="139.7016,35.6580">渋谷駅</option>
+                    <option value="139.7454,35.6586">品川駅</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">{{ t('postgis.demo3.via') }}</label>
+                <select class="form-select" id="line-via" onchange="updateLineSQL()">
+                    <option value="139.7745,35.6839">日本橋</option>
+                    <option value="139.7649,35.6714">銀座</option>
+                    <option value="139.7528,35.6852">皇居前</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">{{ t('postgis.demo3.end') }}</label>
+                <input class="form-control" value="Snowflake Tokyo Office" disabled>
+            </div>
+        </div>
+        <div class="sql-display" id="sql-demo3"></div>
+        <button class="btn btn-primary mt-3" onclick="runDemo3()">Run Demo 3</button>
+        <div id="result-demo3" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+
+<!-- Demo 4: Polygon containment -->
+<div class="card step-card mb-4">
+    <div class="card-header"><h5 class="mb-0">{{ t('postgis.demo4.title') }}</h5></div>
+    <div class="card-body">
+        <p>{{ t('postgis.demo4.desc') }}</p>
+        <div class="sql-display" id="sql-demo4">-- Create Yaesu area polygon / 八重洲エリアのポリゴンを作成
+INSERT INTO postgis_demo.polygons (name, geom) VALUES
+('八重洲エリア',
+ ST_SetSRID(ST_MakePolygon(ST_GeomFromText(
+   'LINESTRING(139.768 35.677, 139.774 35.677, 139.774 35.683, 139.768 35.683, 139.768 35.677)'
+ )), 4326))
+ON CONFLICT (name) DO NOTHING;
+
+-- Containment check / 包含判定
+SELECT p.name AS point_name,
+       ST_Contains(
+         (SELECT geom FROM postgis_demo.polygons WHERE name = '八重洲エリア'),
+         p.geom
+       ) AS inside_yaesu
+FROM postgis_demo.points p ORDER BY p.id;</div>
+        <button class="btn btn-primary mt-3" onclick="runDemo4()">Run Demo 4</button>
+        <div id="result-demo4" class="result-box mt-3 d-none"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/leaflet.min.js') }}"></script>
+<script>
+// ── Map setup (defensive) ──
+let map = null, mapReady = false;
+let markersLayer, linesLayer, polygonsLayer;
+
+try {
+    if (typeof L !== 'undefined') {
+        map = L.map('map', { maxZoom: 16, minZoom: 14 }).setView([35.6800, 139.7700], 14);
+        L.tileLayer('/static/tiles/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 16, minZoom: 14,
+            errorTileUrl: ''  // suppress broken-image icons for missing tiles
+        }).addTo(map);
+        markersLayer = L.layerGroup().addTo(map);
+        linesLayer = L.layerGroup().addTo(map);
+        polygonsLayer = L.layerGroup().addTo(map);
+        document.getElementById('map-fallback').style.display = 'none';
+        mapReady = true;
+        // Fix tile rendering after container size is known
+        setTimeout(() => map.invalidateSize(), 200);
+    }
+} catch(e) {
+    console.warn('Leaflet init failed:', e);
+}
+
+if (!mapReady) {
+    document.getElementById('map-fallback').textContent =
+        'Map library could not be loaded. SQL results are shown below each demo.';
+} else {
+    // Tile server (openstreetmap.org) may be blocked in SPCS.
+    // Markers/lines/polygons still render on the gray canvas.
+}
+
+const COLORS = { office: '#ff4444', station: '#4488ff', landmark: '#44bb44',
+                 park: '#88aa00', default: '#888888' };
+
+function addPointToMap(name, lng, lat, category) {
+    if (!mapReady) return;
+    const color = COLORS[category] || COLORS['default'];
+    const marker = L.circleMarker([lat, lng], {
+        radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.9
+    }).bindPopup(`<b>${name}</b><br>${category}<br>${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    markersLayer.addLayer(marker);
+    return marker;
+}
+
+// ── Common helpers ──
+const EXT = 'postgis';
+let _setupSQL = '';
+
+async function execSQL(sql) {
+    const resp = await fetch('/sql/execute', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ sql })
+    });
+    return resp.json();
+}
+
+function showResult(id, html) {
+    const el = document.getElementById(id);
+    el.innerHTML = html; el.classList.remove('d-none');
+}
+
+function resultTable(data) {
+    if (data.error) return `<span class="text-danger">${data.error}</span>`;
+    if (data.message) return `<span class="text-success">${data.message}</span>`;
+    if (!data.columns) return '';
+    let html = '<table class="table table-sm table-bordered mb-1"><thead><tr>';
+    data.columns.forEach(c => html += `<th>${c}</th>`);
+    html += '</tr></thead><tbody>';
+    (data.rows || []).forEach(r => {
+        html += '<tr>';
+        r.forEach(v => html += `<td>${v === null ? '<em>NULL</em>' : v}</td>`);
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    if (data.execution_time_ms) html += `<small class="text-muted">Execution: ${data.execution_time_ms}ms</small>`;
+    return html;
+}
+
+// ── Setup preview / copy / execute ──
+async function showSetupSQL() {
+    const resp = await fetch(`/advanced/setup-sql/${EXT}`);
+    const data = await resp.json();
+    let sql = '';
+    data.steps.forEach(s => { sql += `-- [${s.label}]\n${s.sql}\n\n`; });
+    _setupSQL = sql.trim();
+    document.getElementById('setup-sql-content').textContent = _setupSQL;
+    document.getElementById('setup-panel').classList.remove('d-none');
+}
+
+function copySetupSQL() {
+    navigator.clipboard.writeText(_setupSQL).then(() => {
+        const btn = document.getElementById('btn-copy');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy All', 2000);
+    });
+}
+
+async function executeSetup() {
+    const btn = document.getElementById('btn-execute');
+    btn.disabled = true; btn.textContent = 'Executing...';
+    try {
+        const resp = await fetch(`/advanced/setup/${EXT}`, { method: 'POST' });
+        const data = await resp.json();
+        let html = '<div class="alert alert-info"><strong>Results:</strong><ul class="mb-0">';
+        data.results.forEach(r => {
+            const ok = r.status === 'ok';
+            html += `<li class="${ok ? 'text-success' : 'text-danger'}">${ok ? '&#10003;' : '&#10007;'} ${r.label} (${r.time_ms}ms)`;
+            if (r.error) html += ` &mdash; <small>${r.error}</small>`;
+            html += '</li>';
+        });
+        html += '</ul></div>';
+        showResult('setup-result', html);
+        // Clear map layers on re-setup
+        if (mapReady) {
+            markersLayer.clearLayers();
+            linesLayer.clearLayers();
+            polygonsLayer.clearLayers();
+        }
+    } catch (e) {
+        showResult('setup-result', `<div class="alert alert-danger">${e}</div>`);
+    }
+    btn.disabled = false; btn.textContent = 'Execute';
+}
+
+// ── Demo 1: Insert single point ──
+async function runDemo1() {
+    if (mapReady) markersLayer.clearLayers();
+    const insertSQL = `INSERT INTO postgis_demo.points (name, category, geom) VALUES
+('Snowflake Tokyo Office', 'office',
+ ST_SetSRID(ST_MakePoint(139.77076, 35.67986), 4326))
+ON CONFLICT (name) DO NOTHING`;
+    const selectSQL = `SELECT name, category, ST_X(geom) AS lng, ST_Y(geom) AS lat
+FROM postgis_demo.points WHERE name = 'Snowflake Tokyo Office'`;
+
+    const ins = await execSQL(insertSQL);
+    const data = await execSQL(selectSQL);
+
+    let html = '';
+    if (ins.error) { html += `<span class="text-danger">INSERT error: ${ins.error}</span><br>`; }
+    else if (ins.message) { html += `<span class="text-success">${ins.message}</span><br>`; }
+    if (data.error) { html += `<span class="text-danger">SELECT error: ${data.error}</span><br>`; }
+    if (data.rows && data.rows.length > 0) {
+        const r = data.rows[0];
+        const lng = parseFloat(r[2]), lat = parseFloat(r[3]);
+        addPointToMap(r[0], lng, lat, r[1]);
+        if (mapReady) map.setView([lat, lng], 16);
+    }
+    html += resultTable(data);
+    showResult('result-demo1', html);
+}
+
+// ── Demo 2: Multiple points ──
+async function runDemo2() {
+    if (mapReady) markersLayer.clearLayers();
+    const insertSQL = `INSERT INTO postgis_demo.points (name, category, geom) VALUES
+('東京駅', 'station', ST_SetSRID(ST_MakePoint(139.7671, 35.6812), 4326)),
+('日本橋', 'landmark', ST_SetSRID(ST_MakePoint(139.7745, 35.6839), 4326)),
+('銀座四丁目交差点', 'landmark', ST_SetSRID(ST_MakePoint(139.7649, 35.6714), 4326)),
+('皇居前広場', 'park', ST_SetSRID(ST_MakePoint(139.7528, 35.6852), 4326))
+ON CONFLICT (name) DO NOTHING`;
+    const selectSQL = `SELECT name, category, ST_X(geom) AS lng, ST_Y(geom) AS lat
+FROM postgis_demo.points ORDER BY id`;
+
+    const ins = await execSQL(insertSQL);
+    const data = await execSQL(selectSQL);
+
+    let html = '';
+    if (ins.error) { html += `<span class="text-danger">INSERT error: ${ins.error}</span><br>`; }
+    else if (ins.message) { html += `<span class="text-success">${ins.message}</span><br>`; }
+    if (data.error) { html += `<span class="text-danger">SELECT error: ${data.error}</span><br>`; }
+    if (data.rows) {
+        const bounds = [];
+        data.rows.forEach(r => {
+            const lng = parseFloat(r[2]), lat = parseFloat(r[3]);
+            addPointToMap(r[0], lng, lat, r[1]);
+            bounds.push([lat, lng]);
+        });
+        if (mapReady && bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] });
+        html += `<span class="text-success">${data.rows.length} points plotted.</span><br>`;
+    }
+    html += resultTable(data);
+    showResult('result-demo2', html);
+}
+
+// ── Demo 3: Line + Distance ──
+function updateLineSQL() {
+    const start = document.getElementById('line-start');
+    const via = document.getElementById('line-via');
+    const [sLng, sLat] = start.value.split(',');
+    const [vLng, vLat] = via.value.split(',');
+    const sName = start.options[start.selectedIndex].text;
+    const vName = via.options[via.selectedIndex].text;
+
+    document.getElementById('sql-demo3').textContent =
+`-- Insert line: ${sName} -> ${vName} -> SF Office
+-- ${sName} -> ${vName} -> Snowflake Office のラインを INSERT
+INSERT INTO postgis_demo.lines (name, geom) VALUES
+('${sName}->${vName}->SF Office',
+ ST_SetSRID(ST_MakeLine(ARRAY[
+   ST_MakePoint(${sLng}, ${sLat}),
+   ST_MakePoint(${vLng}, ${vLat}),
+   ST_MakePoint(139.77076, 35.67986)
+ ]), 4326));
+
+-- Get line and total distance (m) / ラインと総距離(m)を取得
+SELECT name,
+       ROUND(ST_Length(geom::geography)) AS distance_m,
+       ROUND((ST_Length(geom::geography) / 1000.0)::numeric, 2) AS distance_km
+FROM postgis_demo.lines ORDER BY id DESC LIMIT 1;`;
+}
+updateLineSQL();
+
+async function runDemo3() {
+    if (mapReady) linesLayer.clearLayers();
+    const start = document.getElementById('line-start').value.split(',');
+    const via = document.getElementById('line-via').value.split(',');
+    const sName = document.getElementById('line-start').options[
+        document.getElementById('line-start').selectedIndex].text;
+    const vName = document.getElementById('line-via').options[
+        document.getElementById('line-via').selectedIndex].text;
+
+    const insertSQL = `INSERT INTO postgis_demo.lines (name, geom) VALUES
+('${sName}->${vName}->SF Office',
+ ST_SetSRID(ST_MakeLine(ARRAY[
+   ST_MakePoint(${start[0]}, ${start[1]}),
+   ST_MakePoint(${via[0]}, ${via[1]}),
+   ST_MakePoint(139.77076, 35.67986)
+ ]), 4326))`;
+    const selectSQL = `SELECT name,
+       ROUND(ST_Length(geom::geography)) AS distance_m,
+       ROUND((ST_Length(geom::geography) / 1000.0)::numeric, 2) AS distance_km,
+       ST_AsGeoJSON(geom)::text AS geojson
+FROM postgis_demo.lines ORDER BY id DESC LIMIT 1`;
+
+    const ins = await execSQL(insertSQL);
+    const data = await execSQL(selectSQL);
+
+    let html = '';
+    if (ins.error) { html += `<span class="text-danger">INSERT error: ${ins.error}</span><br>`; }
+    if (data.error) { html += `<span class="text-danger">SELECT error: ${data.error}</span><br>`; }
+    if (data.rows && data.rows.length > 0) {
+        const r = data.rows[0];
+        html += `<strong>Total distance: ${r[1]}m (${r[2]}km)</strong><br>`;
+        // Draw line on map
+        if (mapReady && r[3]) {
+            try {
+                const geojson = JSON.parse(r[3]);
+                const layer = L.geoJSON(geojson, {
+                    style: { color: '#ff6600', weight: 4, opacity: 0.8 }
+                });
+                linesLayer.addLayer(layer);
+                map.fitBounds(layer.getBounds(), { padding: [40, 40] });
+            } catch(e) {}
+        }
+        // Show table without geojson column
+        html += '<table class="table table-sm table-bordered mb-1"><thead><tr>';
+        html += '<th>name</th><th>distance_m</th><th>distance_km</th></tr></thead><tbody><tr>';
+        html += `<td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr></tbody></table>`;
+        if (data.execution_time_ms) html += `<small class="text-muted">Execution: ${data.execution_time_ms}ms</small>`;
+    } else if (data.error) {
+        html = `<span class="text-danger">${data.error}</span>`;
+    }
+    showResult('result-demo3', html);
+}
+
+// ── Demo 4: Polygon containment ──
+async function runDemo4() {
+    if (mapReady) polygonsLayer.clearLayers();
+    const insertSQL = `INSERT INTO postgis_demo.polygons (name, geom) VALUES
+('八重洲エリア',
+ ST_SetSRID(ST_MakePolygon(ST_GeomFromText(
+   'LINESTRING(139.768 35.677, 139.774 35.677, 139.774 35.683, 139.768 35.683, 139.768 35.677)'
+ )), 4326))
+ON CONFLICT (name) DO NOTHING`;
+    const checkSQL = `SELECT p.name AS point_name,
+       ST_Contains(
+         (SELECT geom FROM postgis_demo.polygons WHERE name = '八重洲エリア'),
+         p.geom
+       ) AS inside_yaesu
+FROM postgis_demo.points p ORDER BY p.id`;
+    const polySQL = `SELECT name, ST_AsGeoJSON(geom)::text AS geojson
+FROM postgis_demo.polygons WHERE name = '八重洲エリア'`;
+
+    const ins = await execSQL(insertSQL);
+    const data = await execSQL(checkSQL);
+    const polyData = await execSQL(polySQL);
+
+    // Show INSERT errors if any
+    if (ins.error) {
+        showResult('result-demo4', `<span class="text-danger">INSERT error: ${ins.error}</span>`);
+    }
+
+    // Draw polygon on map
+    if (mapReady && polyData.rows && polyData.rows.length > 0) {
+        try {
+            const geojson = JSON.parse(polyData.rows[0][1]);
+            L.geoJSON(geojson, {
+                style: { color: '#ffaa00', weight: 3, fillOpacity: 0.15, fillColor: '#ffaa00' }
+            }).addTo(polygonsLayer);
+            map.setView([35.6810, 139.7680], 14);
+        } catch(e) {}
+    }
+
+    let html = '<strong>ST_Contains Results:</strong><br>';
+    if (data.rows) {
+        html += '<table class="table table-sm table-bordered mb-1"><thead><tr>';
+        html += '<th>point_name</th><th>inside_yaesu</th><th></th></tr></thead><tbody>';
+        data.rows.forEach(r => {
+            const inside = String(r[1]).toLowerCase() === 'true';
+            const badge = inside
+                ? '<span class="badge bg-success">INSIDE</span>'
+                : '<span class="badge bg-secondary">OUTSIDE</span>';
+            html += `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${badge}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        if (data.execution_time_ms) html += `<small class="text-muted">Execution: ${data.execution_time_ms}ms</small>`;
+    } else if (data.error) {
+        html += `<span class="text-danger">${data.error}</span>`;
+    }
+    showResult('result-demo4', html);
+}
+</script>
+{% endblock %}

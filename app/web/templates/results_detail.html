@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}Result #{{ run.run_id }} - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2>Result #{{ run.run_id }}
+            {% if run.run_name %}<small class="text-muted">{{ run.run_name }}</small>{% endif %}
+        </h2>
+        {% if run.status == 'completed' %}
+            <span class="badge bg-success">completed</span>
+        {% elif run.status == 'failed' %}
+            <span class="badge bg-danger">failed</span>
+        {% else %}
+            <span class="badge bg-secondary">{{ run.status }}</span>
+        {% endif %}
+    </div>
+    <a href="/results" class="btn btn-outline-secondary">Back to List</a>
+</div>
+
+<!-- Summary Cards -->
+{% set summary = run.summary or {} %}
+<div class="row mb-4 g-3">
+    <div class="col-md-3">
+        <div class="card metric-card metric-tps">
+            <div class="card-body text-center">
+                <div class="metric-label">TPS</div>
+                <div class="metric-value">{{ "%.1f"|format(summary.tps) if summary.tps else '-' }}</div>
+                <div class="metric-unit">transactions / sec</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card metric-latency">
+            <div class="card-body text-center">
+                <div class="metric-label">Avg Latency</div>
+                <div class="metric-value">{{ "%.2f"|format(summary.latency_avg_ms) if summary.latency_avg_ms else '-' }}</div>
+                <div class="metric-unit">ms</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card metric-txns">
+            <div class="card-body text-center">
+                <div class="metric-label">Transactions</div>
+                <div class="metric-value">{{ "{:,}".format(summary.num_transactions|int) if summary.num_transactions is defined and summary.num_transactions is not none else '-' }}</div>
+                <div class="metric-unit">total</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card metric-failed">
+            <div class="card-body text-center">
+                <div class="metric-label">Failed</div>
+                <div class="metric-value">{{ "{:,}".format(summary.num_failed|int) if summary.num_failed is defined and summary.num_failed is not none else '-' }}</div>
+                <div class="metric-unit">transactions</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+{% if progress %}
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">TPS Over Time</div>
+            <div class="card-body chart-container">
+                <canvas id="tpsChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Latency Over Time</div>
+            <div class="card-body chart-container">
+                <canvas id="latencyChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Wait Events Chart -->
+{% if wait_summary %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Wait Events Over Time</span>
+                <small class="text-muted">Sampled from pg_stat_activity</small>
+            </div>
+            <div class="card-body chart-container-wide">
+                <canvas id="waitEventChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Wait Event Summary Table -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Wait Event Summary</span>
+                <small class="text-muted">Total sampled across all snapshots</small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Wait Event Type</th>
+                                <th>Wait Event</th>
+                                <th class="text-end">Sampled Count</th>
+                                <th style="width: 30%;">Distribution</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set total_waits = wait_summary|sum(attribute='total_count') %}
+                            {% for row in wait_summary %}
+                            <tr>
+                                <td>
+                                    <span class="wait-event-badge wait-event-{{ row.wait_event_type|lower }}">
+                                        {{ row.wait_event_type }}
+                                    </span>
+                                </td>
+                                <td><code>{{ row.wait_event }}</code></td>
+                                <td class="text-end">{{ row.total_count }}</td>
+                                <td>
+                                    <div class="progress" style="height: 18px;">
+                                        <div class="progress-bar wait-bar-{{ row.wait_event_type|lower }}"
+                                             role="progressbar"
+                                             style="width: {{ (row.total_count / total_waits * 100) if total_waits > 0 else 0 }}%;">
+                                            {{ "%.1f"|format(row.total_count / total_waits * 100) if total_waits > 0 else '0' }}%
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Parameters -->
+{% set params = run.parameters or {} %}
+<div class="row mb-4 g-3">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Benchmark Parameters</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        <tr><td>Script</td><td>{{ params.builtin_script or 'mixer' }}</td></tr>
+                        {% if params.read_weight is defined %}
+                        <tr><td>Read Weight</td><td>{{ params.read_weight }}%</td></tr>
+                        <tr><td>Write Weight</td><td>{{ params.write_weight }}%</td></tr>
+                        {% endif %}
+                        <tr><td>Clients</td><td>{{ params.clients or '-' }}</td></tr>
+                        <tr><td>Threads</td><td>{{ params.threads or '-' }}</td></tr>
+                        <tr><td>Duration</td><td>{{ params.duration or '-' }}s</td></tr>
+                        <tr><td>Protocol</td><td>{{ params.protocol or '-' }}</td></tr>
+                        <tr><td>Scale Factor</td><td>{{ params.scale_factor or '-' }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- PG Settings -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">PostgreSQL Settings (at benchmark time)</div>
+            <div class="card-body">
+                {% if run.pg_version %}
+                <p class="mb-2"><small class="text-muted">{{ run.pg_version[:80] }}</small></p>
+                {% endif %}
+                {% if pg_settings %}
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm pg-settings-table mb-0">
+                        <thead><tr><th>Parameter</th><th>Value</th><th>Description</th></tr></thead>
+                        <tbody>
+                            {% for name, info in pg_settings.items() %}
+                            <tr>
+                                <td>{{ name }}</td>
+                                <td>{{ info.display if info.display else info.setting }}</td>
+                                <td><small class="text-muted">{{ info.description[:60] }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No PG settings recorded for this run.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- DB Spec -->
+{% set spec = run.db_spec or {} %}
+<div class="card mb-4">
+    <div class="card-header">Database Spec</div>
+    <div class="card-body">
+        <form method="POST" action="/results/{{ run.run_id }}/spec">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label for="cpu_cores" class="form-label">CPU Cores</label>
+                    <input type="text" class="form-control" id="cpu_cores" name="cpu_cores"
+                           value="{{ spec.cpu_cores or '' }}" placeholder="e.g. 4">
+                </div>
+                <div class="col-md-3">
+                    <label for="memory_gb" class="form-label">Memory (GB)</label>
+                    <input type="text" class="form-control" id="memory_gb" name="memory_gb"
+                           value="{{ spec.memory_gb or '' }}" placeholder="e.g. 16">
+                </div>
+                <div class="col-md-3">
+                    <label for="iops" class="form-label">IOPS</label>
+                    <input type="text" class="form-control" id="iops" name="iops"
+                           value="{{ spec.iops or '' }}" placeholder="e.g. 3000">
+                </div>
+            </div>
+            <div class="row g-3 mt-1">
+                <div class="col-md-9">
+                    <label for="notes" class="form-label">Notes</label>
+                    <input type="text" class="form-control" id="notes" name="notes"
+                           value="{{ spec.notes or '' }}"
+                           placeholder="e.g. Snowflake Postgres XS, AWS RDS r6g.large">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-outline-primary mt-3">Update Spec</button>
+        </form>
+    </div>
+</div>
+
+<!-- Timing -->
+<div class="card mb-4">
+    <div class="card-body">
+        <small class="text-muted">
+            Started: {{ run.started_at or '-' }} &nbsp;|&nbsp;
+            Finished: {{ run.finished_at or '-' }}
+        </small>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if progress or wait_summary %}
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+{% endif %}
+{% if progress %}
+<script>
+    var progressData = {{ progress_json|safe }};
+    var tpsChart = createTimeSeriesChart('tpsChart', 'TPS', '#0d6efd', 'TPS');
+    var latencyChart = createTimeSeriesChart('latencyChart', 'Latency', '#ffc107', 'ms');
+
+    progressData.forEach(function(d) {
+        addChartPoint(tpsChart, d.elapsed_sec, d.tps);
+        addChartPoint(latencyChart, d.elapsed_sec, d.latency_avg_ms);
+    });
+</script>
+{% endif %}
+{% if wait_summary %}
+<script>
+    var waitEventsData = {{ wait_events_json|safe }};
+    if (waitEventsData.timestamps && waitEventsData.timestamps.length > 0) {
+        createWaitEventChart('waitEventChart', waitEventsData);
+    }
+</script>
+{% endif %}
+{% endblock %}

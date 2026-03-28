@@ -1,0 +1,612 @@
+{% extends "base.html" %}
+{% block title %}pg_lake Getting Started - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/pg-lake/">pg_lake</a></li>
+    <li class="breadcrumb-item active">Getting Started</li>
+</ol></nav>
+
+<h2>{{ t('lake.setup.title') }}</h2>
+<p class="text-muted mb-4">{{ t('lake.setup.intro') }}</p>
+
+<!-- Step status bar -->
+<div class="row g-2 mb-4">
+    {% set steps = [
+        ('S3 Bucket', 'aws'),
+        ('IAM Policy', 'aws'),
+        ('IAM Role', 'aws'),
+        ('Storage Integration', 'snowflake'),
+        ('Get ARN/External ID', 'snowflake'),
+        ('Update Trust Policy', 'aws'),
+        ('Attach to Instance', 'snowflake'),
+        ('CREATE EXTENSION', 'app'),
+        ('SET Location Prefix', 'app')
+    ] %}
+    {% for label, where in steps %}
+    <div class="col">
+        <div class="text-center" style="font-size:0.7rem">
+            {% if where == 'aws' %}
+            <span class="badge bg-warning text-dark">AWS</span>
+            {% elif where == 'snowflake' %}
+            <span class="badge bg-info text-dark">Snowflake</span>
+            {% else %}
+            <span class="badge bg-success">This App</span>
+            {% endif %}
+            <br>{{ label }}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Shared input fields -->
+<div class="card mb-4">
+    <div class="card-header"><h6 class="mb-0">{{ t('lake.setup.config_title') }}</h6></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.setup.config_desc') }}</p>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">S3 Bucket Name</label>
+                <input type="text" class="form-control" id="cfgBucket" placeholder="my-pg-lake-data" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">AWS Account ID</label>
+                <input type="text" class="form-control" id="cfgAwsAccount" placeholder="123456789012" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">AWS Region</label>
+                <input type="text" class="form-control" id="cfgRegion" placeholder="ap-northeast-1" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">IAM Role Name</label>
+                <input type="text" class="form-control" id="cfgRoleName" value="snowflake-pg-lake-access" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Storage Integration Name</label>
+                <input type="text" class="form-control" id="cfgIntegration" value="PG_LAKE_S3_INTEGRATION" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Postgres Instance Name</label>
+                <input type="text" class="form-control" id="cfgInstance" value="{{ instance_name }}" oninput="regenerateAll()">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Legend -->
+<div class="alert alert-secondary py-2 mb-4">
+    <strong>Where to run each step:</strong>
+    <span class="badge bg-warning text-dark ms-2">AWS Console</span> Open in your browser
+    <span class="badge bg-info text-dark ms-2">Snowflake Worksheet</span> Run SQL in Snowsight
+    <span class="badge bg-success ms-2">This App</span> Run directly with the button below
+</div>
+
+<!-- Step 1: S3 Bucket -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 1:</strong> {{ t('lake.setup.step1.title') }}</span>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step1.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; S3 &gt; Create bucket</strong></li>
+            <li>Bucket name: use the name entered above</li>
+            <li>{{ t('lake.setup.step1.note1') }}</li>
+            <li>{{ t('lake.setup.step1.note2') }}</li>
+        </ol>
+    </div>
+</div>
+
+<!-- Step 2: IAM Policy -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 2:</strong> {{ t('lake.setup.step2.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('iamPolicyJson')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step2.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Policies &gt; Create policy</strong></li>
+            <li>Switch to the <strong>JSON</strong> tab</li>
+            <li>Paste the policy below and click <strong>Next</strong></li>
+            <li>Name: <code>SnowflakePgLakeS3Access</code> (or your preferred name)</li>
+        </ol>
+        <pre class="bg-dark text-light p-3 rounded" id="iamPolicyJson"></pre>
+    </div>
+</div>
+
+<!-- Step 3: IAM Role -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 3:</strong> {{ t('lake.setup.step3.title') }}</span>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step3.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Roles &gt; Create role</strong></li>
+            <li>Trusted entity type: <strong>AWS account</strong> &gt; <strong>Another AWS account</strong> &gt; enter your own Account ID (temporary; replaced in Step 6 with Snowflake's ARN)</li>
+            <li>Attach the policy created in Step 2</li>
+            <li>Role name: <code id="roleNameDisplay"></code></li>
+            <li>Click <strong>Create role</strong></li>
+            <li>After creation: open the role &gt; scroll to <strong>Maximum session duration</strong> &gt; Edit &gt; set to <strong>12 hours</strong><br>
+                <small class="text-danger">Required by Snowflake. Default 1 hour causes long-running Iceberg operations to fail.</small></li>
+        </ol>
+    </div>
+</div>
+
+<!-- Step 4: Storage Integration -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 4:</strong> {{ t('lake.setup.step4.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('integrationSql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step4.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>Snowsight &gt; Worksheets</strong></li>
+            <li>Switch to role <strong>ACCOUNTADMIN</strong></li>
+            <li>Paste and run the SQL below</li>
+        </ol>
+        <pre class="bg-dark text-light p-3 rounded" id="integrationSql"></pre>
+    </div>
+</div>
+
+<!-- Step 5: Get Snowflake ARN / External ID -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 5:</strong> {{ t('lake.setup.step5.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('describeSql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step5.desc') }}</p>
+        <ol class="small">
+            <li>Run the SQL below in the <strong>same Snowflake Worksheet</strong></li>
+            <li>Find <code>STORAGE_AWS_IAM_USER_ARN</code> and <code>STORAGE_AWS_EXTERNAL_ID</code> in the output</li>
+            <li>Paste both values into the fields below — they are used in Step 6</li>
+        </ol>
+        <pre class="bg-dark text-light p-3 rounded" id="describeSql"></pre>
+        <div class="row g-3 mt-2">
+            <div class="col-md-6">
+                <label class="form-label">STORAGE_AWS_IAM_USER_ARN</label>
+                <input type="text" class="form-control" id="cfgSfArn" placeholder="arn:aws:iam::..." oninput="regenerateAll()">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">STORAGE_AWS_EXTERNAL_ID</label>
+                <input type="text" class="form-control" id="cfgExternalId" placeholder="ABC123_SFCRole=..." oninput="regenerateAll()">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 6: Update Trust Policy -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 6:</strong> {{ t('lake.setup.step6.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('trustPolicyJson')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step6.desc') }}</p>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Roles</strong> &gt; select the role from Step 3</li>
+            <li>Go to <strong>Trust relationships</strong> tab &gt; <strong>Edit trust policy</strong></li>
+            <li>Replace the entire JSON with the policy below (uses the ARN and External ID from Step 5)</li>
+        </ol>
+        <pre class="bg-dark text-light p-3 rounded" id="trustPolicyJson"></pre>
+    </div>
+</div>
+
+<!-- Step 7: ALTER POSTGRES INSTANCE -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 7:</strong> {{ t('lake.setup.step7.title') }}</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('alterInstanceSql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step7.desc') }}</p>
+        <ol class="small">
+            <li>Run the SQL below in <strong>Snowflake Worksheet</strong> as <strong>ACCOUNTADMIN</strong></li>
+            <li>This links the S3 storage integration to the Postgres instance</li>
+        </ol>
+        <pre class="bg-dark text-light p-3 rounded" id="alterInstanceSql"></pre>
+    </div>
+</div>
+
+<!-- Step 8: CREATE EXTENSION -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-success me-2">This App</span> <strong>Step 8:</strong> {{ t('lake.setup.step8.title') }}</span>
+        <button class="btn btn-primary btn-sm" onclick="runExtensionSetup()">Run</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step8.desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>CREATE EXTENSION IF NOT EXISTS pg_lake CASCADE;</code></pre>
+        <div id="step8Result"></div>
+    </div>
+</div>
+
+<!-- Step 9: SET default_location_prefix -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-success me-2">This App</span> <strong>Step 9:</strong> {{ t('lake.setup.step9.title') }}</span>
+        <button class="btn btn-primary btn-sm" onclick="setLocationPrefix()">Run</button>
+    </div>
+    <div class="card-body">
+        <p>{{ t('lake.setup.step9.desc') }}</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-8">
+                <label class="form-label">S3 Location Prefix</label>
+                <input type="text" class="form-control" id="cfgLocationPrefix" oninput="regenerateAll()">
+            </div>
+        </div>
+        <pre class="bg-dark text-light p-3 rounded" id="setLocationSql"></pre>
+        <div id="step9Result"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Snowflake READ Integration (Optional)                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="alert alert-secondary mt-5 mb-3">
+    <strong>Optional: Snowflake Iceberg READ</strong> — The steps below configure Snowflake to read the Iceberg tables that pg_lake writes to S3.
+    This requires a separate IAM role for Snowflake (distinct from the Postgres role above) and a standard Storage Integration.
+    Skip these steps if you only need pg_lake on the Postgres side.
+</div>
+
+<!-- Additional input fields for Snowflake integration -->
+<div class="card mb-4">
+    <div class="card-header"><h6 class="mb-0">Snowflake Integration Configuration</h6></div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Snowflake IAM Role Name</label>
+                <input type="text" class="form-control" id="cfgSfRoleName" value="snowflake-iceberg-read" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">External Volume Name</label>
+                <input type="text" class="form-control" id="cfgExtVolume" value="PG_LAKE_VOL" oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Catalog Integration Name</label>
+                <input type="text" class="form-control" id="cfgCatalog" value="PG_LAKE_CATALOG" oninput="regenerateAll()">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 10: IAM Role for Snowflake -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 10:</strong> Create IAM Role for Snowflake</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('sfIamPolicyJson')">Copy Policy</button>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">Create a <strong>separate</strong> IAM role for Snowflake to read from S3. The Postgres role (Step 3) and the Snowflake role serve different purposes — Postgres writes via pg_lake, Snowflake reads Iceberg metadata and Parquet.</p>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Roles &gt; Create role</strong></li>
+            <li>Trusted entity: <strong>AWS account</strong> &gt; <strong>Another AWS account</strong> &gt; enter your Account ID (temporary; updated in Step 12)</li>
+            <li>Attach the <strong>same S3 policy</strong> from Step 2 (or the read-only version below)</li>
+            <li>Role name: <code id="sfRoleNameDisplay"></code></li>
+            <li>Set <strong>Maximum session duration</strong> to <strong>12 hours</strong></li>
+        </ol>
+        <p class="small text-muted">Read-only policy (sufficient for Snowflake READ):</p>
+        <pre class="bg-dark text-light p-3 rounded" id="sfIamPolicyJson"></pre>
+    </div>
+</div>
+
+<!-- Step 11: External Volume + Catalog Integration -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 11:</strong> Create External Volume + Catalog Integration</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('extVolumeSql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">Create the Snowflake objects that allow reading Iceberg tables from S3.</p>
+        <ol class="small">
+            <li>Run in <strong>Snowflake Worksheet</strong> as <strong>ACCOUNTADMIN</strong></li>
+            <li>After running, execute <code>DESCRIBE EXTERNAL VOLUME</code> to get the Snowflake ARN and External ID</li>
+        </ol>
+        <pre class="bg-dark text-light p-3 rounded" id="extVolumeSql"></pre>
+    </div>
+</div>
+
+<!-- Step 12: Update Trust Policy for Snowflake role -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-warning text-dark me-2">AWS Console</span> <strong>Step 12:</strong> Update Trust Policy for Snowflake Role</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('sfTrustPolicyJson')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">Update the IAM role's trust policy with the Snowflake ARN from Step 11's <code>DESCRIBE EXTERNAL VOLUME</code> output.</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label">STORAGE_AWS_IAM_USER_ARN (from DESCRIBE EXTERNAL VOLUME)</label>
+                <input type="text" class="form-control" id="cfgSfReadArn" placeholder="arn:aws:iam::..." oninput="regenerateAll()">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">STORAGE_AWS_EXTERNAL_ID (from DESCRIBE EXTERNAL VOLUME)</label>
+                <input type="text" class="form-control" id="cfgSfReadExternalId" placeholder="..." oninput="regenerateAll()">
+            </div>
+        </div>
+        <ol class="small">
+            <li>Open <strong>AWS Console &gt; IAM &gt; Roles</strong> &gt; select the Snowflake role from Step 10</li>
+            <li>Go to <strong>Trust relationships</strong> tab &gt; <strong>Edit trust policy</strong></li>
+            <li>Replace with the JSON below</li>
+        </ol>
+        <pre class="bg-dark text-light p-3 rounded" id="sfTrustPolicyJson"></pre>
+    </div>
+</div>
+
+<!-- Step 13: Verify -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><span class="badge bg-info text-dark me-2">Snowflake Worksheet</span> <strong>Step 13:</strong> Register and Query Iceberg Table</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="copyEl('icebergQuerySql')">Copy</button>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">After completing the trust policy update, register the Iceberg table in Snowflake. Fill in the metadata path below — find it in <strong>AWS Console → S3 → your bucket → metadata/ folder</strong> (use the latest <code>.metadata.json</code> file).</p>
+        <div class="row g-3 mb-3">
+            <div class="col-md-8">
+                <label class="form-label">Iceberg Metadata File Path <small class="text-muted">(relative to STORAGE_BASE_URL)</small></label>
+                <input type="text" class="form-control" id="cfgMetadataPath"
+                    placeholder="frompg/tables/benchmark/iot/sensor_archive/XXXXX/metadata/00001-xxxx.metadata.json"
+                    oninput="regenerateAll()">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Snowflake Database.Schema</label>
+                <input type="text" class="form-control" id="cfgSfSchema" value="PG_LAKE_DEMO.ANALYTICS" oninput="regenerateAll()">
+            </div>
+        </div>
+        <div class="alert alert-light border small">
+            <strong>How to find the metadata path:</strong>
+            <ol class="mb-0">
+                <li>Open <strong>AWS Console → S3</strong> → navigate to your bucket</li>
+                <li>Go to <code>pg_lake/&lt;prefix&gt;/frompg/tables/benchmark/iot/sensor_archive/</code></li>
+                <li>Inside you'll find a numbered folder (e.g. <code>19784/</code>) → open <code>metadata/</code></li>
+                <li>Copy the path of the <strong>latest</strong> (highest numbered) <code>.metadata.json</code> file</li>
+                <li>Enter only the part <strong>after</strong> the <code>STORAGE_BASE_URL</code> (after <code>pg_lake/</code>)</li>
+            </ol>
+        </div>
+        <pre class="bg-dark text-light p-3 rounded" id="icebergQuerySql"></pre>
+        <div class="alert alert-info small mt-3">
+            <strong>Note on REFRESH:</strong> <code>ALTER ICEBERG TABLE ... REFRESH</code> requires specifying the new metadata path explicitly:
+            <code>ALTER ICEBERG TABLE ... REFRESH 'path/to/new/metadata.json';</code>
+            Automatic metadata tracking (AUTO_REFRESH) is not yet supported for Iceberg on Object Store catalogs.
+            This limitation may be resolved when pg_lake adds REST Catalog (Polaris) support (<a href="https://github.com/Snowflake-Labs/pg_lake/issues/94" target="_blank">Issue #94</a>).
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function val(id) { return document.getElementById(id)?.value || ''; }
+
+function regenerateAll() {
+    const bucket = val('cfgBucket') || 'your-bucket';
+    const account = val('cfgAwsAccount') || '123456789012';
+    const region = val('cfgRegion') || 'ap-northeast-1';
+    const roleName = val('cfgRoleName') || 'snowflake-pg-lake-access';
+    const integration = val('cfgIntegration') || 'PG_LAKE_S3_INTEGRATION';
+    const instance = val('cfgInstance') || 'YOUR_INSTANCE';
+    const sfArn = val('cfgSfArn') || 'arn:aws:iam::123456789012:user/xxxx';
+    const externalId = val('cfgExternalId') || 'ABC123_SFCRole=...';
+    const roleArn = `arn:aws:iam::${account}:role/${roleName}`;
+
+    // Step 2: IAM Policy
+    document.getElementById('iamPolicyJson').textContent = JSON.stringify({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject", "s3:GetObject", "s3:GetObjectVersion",
+                "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:ListBucket",
+                "s3:GetBucketLocation"
+            ],
+            "Resource": [
+                `arn:aws:s3:::${bucket}`,
+                `arn:aws:s3:::${bucket}/*`
+            ]
+        }]
+    }, null, 2);
+
+    // Step 3: Role name display
+    document.getElementById('roleNameDisplay').textContent = roleName;
+
+    // Step 4: CREATE STORAGE INTEGRATION
+    document.getElementById('integrationSql').textContent =
+`-- Run as ACCOUNTADMIN in Snowflake Worksheet
+USE ROLE ACCOUNTADMIN;
+
+-- Drop first if re-creating (OR REPLACE not supported for POSTGRES_EXTERNAL_STORAGE)
+-- DROP STORAGE INTEGRATION IF EXISTS ${integration};
+
+CREATE STORAGE INTEGRATION IF NOT EXISTS ${integration}
+    TYPE = POSTGRES_EXTERNAL_STORAGE
+    STORAGE_PROVIDER = 'S3'
+    STORAGE_AWS_ROLE_ARN = '${roleArn}'
+    ENABLED = TRUE
+    STORAGE_ALLOWED_LOCATIONS = ('s3://${bucket}/');`;
+
+    // Step 5: DESCRIBE INTEGRATION
+    document.getElementById('describeSql').textContent =
+`-- Run as ACCOUNTADMIN — copy the two values below
+DESCRIBE STORAGE INTEGRATION ${integration};
+
+-- Find these rows in the output:
+-- STORAGE_AWS_IAM_USER_ARN    → paste below
+-- STORAGE_AWS_EXTERNAL_ID     → paste below`;
+
+    // Step 6: Trust Policy
+    document.getElementById('trustPolicyJson').textContent = JSON.stringify({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "AWS": sfArn },
+            "Action": "sts:AssumeRole",
+            "Condition": {
+                "StringEquals": { "sts:ExternalId": externalId }
+            }
+        }]
+    }, null, 2);
+
+    // Step 7: ALTER POSTGRES INSTANCE
+    document.getElementById('alterInstanceSql').textContent =
+`-- Run as ACCOUNTADMIN in Snowflake Worksheet
+USE ROLE ACCOUNTADMIN;
+
+ALTER POSTGRES INSTANCE ${instance}
+    SET STORAGE_INTEGRATION = '${integration}';`;
+
+    // Step 9: SET location prefix
+    const prefix = val('cfgLocationPrefix') || `s3://${bucket}/pg_lake/`;
+    document.getElementById('setLocationSql').textContent =
+`ALTER DATABASE benchmark SET pg_lake_iceberg.default_location_prefix = '${prefix}';`;
+
+    // Auto-fill location prefix placeholder
+    const pfxEl = document.getElementById('cfgLocationPrefix');
+    if (!pfxEl.value) pfxEl.placeholder = `s3://${bucket}/pg_lake/`;
+
+    // ── Snowflake Integration (Steps 10-13) ──
+    const sfRoleName = val('cfgSfRoleName') || 'snowflake-iceberg-read';
+    const extVolume = val('cfgExtVolume') || 'PG_LAKE_VOL';
+    const catalog = val('cfgCatalog') || 'PG_LAKE_CATALOG';
+    const sfRoleArn = `arn:aws:iam::${account}:role/${sfRoleName}`;
+    const sfReadArn = val('cfgSfReadArn') || 'arn:aws:iam::123456789012:user/xxxx';
+    const sfReadExternalId = val('cfgSfReadExternalId') || 'EXTERNAL_ID_FROM_DESCRIBE';
+
+    // Step 10: Role name display + read-only policy
+    document.getElementById('sfRoleNameDisplay').textContent = sfRoleName;
+    document.getElementById('sfIamPolicyJson').textContent = JSON.stringify({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject", "s3:GetObjectVersion",
+                "s3:ListBucket", "s3:GetBucketLocation"
+            ],
+            "Resource": [
+                `arn:aws:s3:::${bucket}`,
+                `arn:aws:s3:::${bucket}/*`
+            ]
+        }]
+    }, null, 2);
+
+    // Step 11: External Volume + Catalog Integration
+    document.getElementById('extVolumeSql').textContent =
+`-- Run as ACCOUNTADMIN in Snowflake Worksheet
+USE ROLE ACCOUNTADMIN;
+
+-- External Volume: gives Snowflake access to S3 via IAM role
+CREATE OR REPLACE EXTERNAL VOLUME ${extVolume}
+    STORAGE_LOCATIONS = ((
+        NAME = 'pg_lake_s3',
+        STORAGE_BASE_URL = 's3://${bucket}/pg_lake/',
+        STORAGE_PROVIDER = 'S3',
+        STORAGE_AWS_ROLE_ARN = '${sfRoleArn}'
+    ));
+
+-- Catalog Integration: tells Snowflake to read Iceberg metadata from S3
+CREATE OR REPLACE CATALOG INTEGRATION ${catalog}
+    CATALOG_SOURCE = OBJECT_STORE
+    TABLE_FORMAT = ICEBERG
+    ENABLED = TRUE;
+
+-- Get Snowflake's ARN and External ID for the trust policy
+DESCRIBE EXTERNAL VOLUME ${extVolume};
+-- Find: STORAGE_AWS_IAM_USER_ARN and STORAGE_AWS_EXTERNAL_ID
+-- Paste them into Step 12 below`;
+
+    // Step 12: Trust Policy for Snowflake role
+    document.getElementById('sfTrustPolicyJson').textContent = JSON.stringify({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "AWS": sfReadArn },
+            "Action": "sts:AssumeRole",
+            "Condition": {
+                "StringEquals": { "sts:ExternalId": sfReadExternalId }
+            }
+        }]
+    }, null, 2);
+
+    // Step 13: Iceberg table query
+    const metadataPath = val('cfgMetadataPath') || 'frompg/tables/benchmark/iot/sensor_archive/XXXXX/metadata/00001-xxxx.metadata.json';
+    const sfSchema = val('cfgSfSchema') || 'PG_LAKE_DEMO.ANALYTICS';
+    const sfDbParts = sfSchema.split('.');
+    const sfDb = sfDbParts[0] || 'PG_LAKE_DEMO';
+    const sfSch = sfDbParts[1] || 'ANALYTICS';
+
+    document.getElementById('icebergQuerySql').textContent =
+`-- Run as ACCOUNTADMIN in Snowflake Worksheet
+USE ROLE ACCOUNTADMIN;
+
+-- Create database/schema if needed
+CREATE DATABASE IF NOT EXISTS ${sfDb};
+CREATE SCHEMA IF NOT EXISTS ${sfSchema};
+
+-- Register the Iceberg table
+CREATE OR REPLACE ICEBERG TABLE ${sfSchema}.SENSOR_FROM_PG
+    EXTERNAL_VOLUME = '${extVolume}'
+    CATALOG = '${catalog}'
+    METADATA_FILE_PATH = '${metadataPath}';
+
+-- Query (same data that pg_lake wrote from PostgreSQL)
+SELECT date_trunc('hour', ts) AS hour,
+       avg(temp) AS avg_temp, count(*) AS readings
+FROM ${sfSchema}.SENSOR_FROM_PG
+GROUP BY 1 ORDER BY 1;
+
+-- Refresh metadata (specify new metadata path after pg_lake writes new data)
+-- ALTER ICEBERG TABLE ${sfSchema}.SENSOR_FROM_PG REFRESH '${metadataPath}';`;
+}
+
+function copyEl(id) {
+    const text = document.getElementById(id)?.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = orig, 1500);
+    });
+}
+
+function runExtensionSetup() {
+    const el = document.getElementById('step8Result');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql: 'CREATE EXTENSION IF NOT EXISTS pg_lake CASCADE'})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        else el.innerHTML = `<div class="alert alert-success">${data.message || 'pg_lake installed successfully.'}</div>`;
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function setLocationPrefix() {
+    const el = document.getElementById('step9Result');
+    const bucket = val('cfgBucket') || 'your-bucket';
+    const prefix = val('cfgLocationPrefix') || `s3://${bucket}/pg_lake/`;
+    const sql = `ALTER DATABASE benchmark SET pg_lake_iceberg.default_location_prefix = '${prefix}'`;
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql: sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        else el.innerHTML = `<div class="alert alert-success">Location prefix set to: ${prefix}</div>`;
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+// Initialize on load
+regenerateAll();
+</script>
+{% endblock %}

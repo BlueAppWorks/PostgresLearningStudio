@@ -1,0 +1,661 @@
+"""Internationalization support for Postgres Learning Studio."""
+
+from flask import request
+from markupsafe import Markup
+
+TRANSLATIONS = {
+    # ── Navbar / Layout (English only — menus do not switch) ──
+    "nav.home": {"en": "Home", "ja": "Home"},
+    "nav.benchmark": {"en": "Benchmark", "ja": "Benchmark"},
+    "nav.new_run": {"en": "New Run", "ja": "New Run"},
+    "nav.results": {"en": "Results", "ja": "Results"},
+    "nav.compare": {"en": "Compare", "ja": "Compare"},
+    "nav.playground": {"en": "Playground", "ja": "Playground"},
+    "nav.sql_client": {"en": "SQL Client", "ja": "SQL Client"},
+    "nav.scripts": {"en": "Scripts & Scenarios", "ja": "Scripts & Scenarios"},
+    "nav.advanced": {"en": "Advanced", "ja": "Advanced"},
+    "nav.overview": {"en": "Overview", "ja": "Overview"},
+    "nav.settings": {"en": "Settings", "ja": "Settings"},
+    "nav.connections": {"en": "Connections", "ja": "Connections"},
+    "nav.system_info": {"en": "System Info", "ja": "System Info"},
+    "footer": {"en": "Postgres Learning Studio &mdash; Running on SPCS", "ja": "Postgres Learning Studio &mdash; Running on SPCS"},
+
+    # ── Advanced Index ──
+    "adv.title": {"en": "Advanced Extensions", "ja": "Advanced Extensions"},
+    "adv.intro": {
+        "en": "Interactive demo environment to experience powerful PostgreSQL extensions.<br>Learn setup methods, sample SQL, and actual behavior of each extension.",
+        "ja": "PostgreSQL のパワフルなエクステンションを体験できるインタラクティブなデモ環境です。<br>各エクステンションのセットアップ方法、サンプル SQL、実際の動作を確認できます。",
+    },
+    "adv.postgis.desc": {
+        "en": "An extension that adds <strong>geospatial data</strong> capabilities to PostgreSQL. Store coordinates (points, lines, polygons) in the DB and execute spatial queries like distance calculations and containment checks in SQL.",
+        "ja": "PostgreSQL に<strong>地理空間データ</strong>の機能を追加するエクステンション。地図上の座標（ポイント・ライン・ポリゴン）を DB に格納し、距離計算や包含判定などの空間クエリを SQL で実行できます。",
+    },
+    "adv.postgis.feat1": {
+        "en": "Store and render points, lines, and polygons",
+        "ja": "ポイント・ライン・ポリゴンの格納と描画",
+    },
+    "adv.postgis.feat2": {
+        "en": "Distance, area, and containment calculations",
+        "ja": "距離計算・面積計算・包含判定",
+    },
+    "adv.postgis.feat3": {
+        "en": "Fast search with GiST spatial index",
+        "ja": "GiST 空間インデックスによる高速検索",
+    },
+    "adv.postgis.license": {
+        "en": 'Developer: <a href="https://postgis.net/" target="_blank">PostGIS Project</a> (OSGeo) / License: GPL v2',
+        "ja": '開発: <a href="https://postgis.net/" target="_blank">PostGIS Project</a> (OSGeo) / ライセンス: GPL v2',
+    },
+    "adv.hint.desc": {
+        "en": "An extension that lets you control the PostgreSQL query planner by writing <strong>hints</strong> in SQL comments. Useful when statistics are stale or the planner chooses a suboptimal plan.",
+        "ja": "SQL コメントに<strong>ヒント</strong>を書くことで、PostgreSQL のクエリプランナーに実行計画を指示できるエクステンション。統計情報が古い場合や、プランナーが最適でない計画を選ぶ場合に有効です。",
+    },
+    "adv.hint.feat1": {
+        "en": "Force SeqScan / IndexScan",
+        "ja": "SeqScan / IndexScan の強制指定",
+    },
+    "adv.hint.feat2": {
+        "en": "Specify JOIN method (NestLoop / HashJoin / MergeJoin)",
+        "ja": "JOIN 方式の指定（NestLoop / HashJoin / MergeJoin）",
+    },
+    "adv.hint.feat3": {
+        "en": "Fix inefficient plans caused by stale statistics",
+        "ja": "古い統計情報による非効率な計画の修正",
+    },
+    "adv.hint.license": {
+        "en": 'Developer: <a href="https://github.com/ossc-db" target="_blank">NTT OSS Center DBMS Development and Support Team</a> / License: PostgreSQL License',
+        "ja": '開発: <a href="https://github.com/ossc-db" target="_blank">NTT OSS Center DBMS Development and Support Team</a> / ライセンス: PostgreSQL License',
+    },
+    "adv.vector.desc": {
+        "en": 'An extension that adds <strong>vector types</strong> and vector search to PostgreSQL. Convert text to numerical vectors and perform "semantic search" to find similar documents via SQL. A foundational technology for AI/RAG.',
+        "ja": "PostgreSQL に<strong>ベクトル型</strong>とベクトル検索を追加するエクステンション。テキストを数値ベクトルに変換し、意味的に似た文書を検索する「セマンティック検索」を SQL で実現できます。AI/RAG の基盤技術です。",
+    },
+    "adv.vector.feat1": {
+        "en": "Store vectors with the vector type",
+        "ja": "vector 型によるベクトル格納",
+    },
+    "adv.vector.feat2": {
+        "en": "Search by cosine similarity and L2 distance",
+        "ja": "コサイン類似度・L2距離による検索",
+    },
+    "adv.vector.feat3": {
+        "en": "Fast nearest-neighbor search with HNSW / IVFFlat index",
+        "ja": "HNSW / IVFFlat インデックスで高速近傍検索",
+    },
+    "adv.vector.license": {
+        "en": 'Developer: <a href="https://github.com/pgvector" target="_blank">Andrew Kane</a> / License: PostgreSQL License',
+        "ja": '開発: <a href="https://github.com/pgvector" target="_blank">Andrew Kane</a> / ライセンス: PostgreSQL License',
+    },
+    "adv.lake.title_badge": {"en": "", "ja": ""},
+    "adv.lake.desc": {
+        "en": "A Snowflake-developed extension that adds <strong>Apache Iceberg</strong> and <strong>data lake</strong> access to PostgreSQL. Create Iceberg tables with <code>CREATE TABLE ... USING iceberg</code> and query Parquet/CSV on S3 directly.",
+        "ja": "PostgreSQL に <strong>Apache Iceberg</strong> と<strong>データレイク</strong>アクセス機能を追加する Snowflake 製エクステンション。<code>CREATE TABLE ... USING iceberg</code> で Iceberg テーブルを作成し、S3 上の Parquet/CSV を直接クエリできます。",
+    },
+    "adv.lake.feat1": {
+        "en": "Create and DML Iceberg tables",
+        "ja": "Iceberg テーブルの作成・DML",
+    },
+    "adv.lake.feat2": {
+        "en": "Query Parquet/CSV on S3/GCS via Foreign Tables",
+        "ja": "S3/GCS 上の Parquet/CSV を Foreign Table で参照",
+    },
+    "adv.lake.feat3": {
+        "en": "Read/write data lake via COPY TO/FROM",
+        "ja": "COPY TO/FROM によるデータレイク読み書き",
+    },
+    "adv.lake.license": {
+        "en": 'Developer: <a href="https://github.com/Snowflake-Labs" target="_blank">Snowflake Labs</a> / License: Apache License 2.0',
+        "ja": '開発: <a href="https://github.com/Snowflake-Labs" target="_blank">Snowflake Labs</a> / ライセンス: Apache License 2.0',
+    },
+
+    # ── PostGIS Demo ──
+    "postgis.title": {"en": "PostGIS Demo", "ja": "PostGIS Demo"},
+    "postgis.intro": {
+        "en": 'Experience storing, querying, and visualizing geospatial data. <a href="https://postgis.net/" target="_blank" rel="noopener">PostGIS</a> is an OSS extension that adds geospatial capabilities to PostgreSQL. (<a href="https://github.com/postgis/postgis" target="_blank" rel="noopener">GitHub</a>)',
+        "ja": '地理空間データの格納・検索・地図描画を体験します。<a href="https://postgis.net/" target="_blank" rel="noopener">PostGIS</a> は PostgreSQL に地理空間機能を追加する OSS エクステンションです。(<a href="https://github.com/postgis/postgis" target="_blank" rel="noopener">GitHub</a>)',
+    },
+    "postgis.demo1.title": {
+        "en": "Demo 1: INSERT Point and Map Display",
+        "ja": "Demo 1: ポイントの INSERT と地図表示",
+    },
+    "postgis.demo1.desc": {
+        "en": "INSERT the coordinates of the Snowflake Tokyo Office (Yaesu 2-2-1) and plot it on the map.",
+        "ja": "Snowflake 東京オフィス（八重洲2-2-1）の座標を DB に INSERT し、地図上にプロットします。",
+    },
+    "postgis.demo2.title": {
+        "en": "Demo 2: Plotting Multiple Points",
+        "ja": "Demo 2: 複数ポイントのプロット",
+    },
+    "postgis.demo2.desc": {
+        "en": "Add landmarks around Tokyo Station and plot all points on the map.",
+        "ja": "東京駅周辺のランドマークを追加し、地図上に全ポイントをプロットします。",
+    },
+    "postgis.demo3.title": {
+        "en": "Demo 3: Drawing Lines and Distance Calculation",
+        "ja": "Demo 3: ラインの描画と距離計算",
+    },
+    "postgis.demo3.desc": {
+        "en": "Create a line from start point through waypoint to Snowflake Office and calculate total distance with <code>ST_Length(geography)</code>.",
+        "ja": "始点 → 中継点 → Snowflake Office を結ぶラインを作成し、<code>ST_Length(geography)</code> で総距離を計算します。",
+    },
+    "postgis.demo3.start": {"en": "Start Point", "ja": "始点"},
+    "postgis.demo3.via": {"en": "Waypoint", "ja": "中継点"},
+    "postgis.demo3.end": {"en": "End Point (fixed)", "ja": "終点（固定）"},
+    "postgis.demo4.title": {
+        "en": "Demo 4: Polygon Containment (ST_Contains)",
+        "ja": "Demo 4: ポリゴンの包含判定 (ST_Contains)",
+    },
+    "postgis.demo4.desc": {
+        "en": "Create a rectangular polygon around the Yaesu area and check which points are inside using <code>ST_Contains</code>.",
+        "ja": "八重洲エリアを四角く囲うポリゴンを作成し、<code>ST_Contains</code> で各ポイントが中に入っているかを判定します。",
+    },
+
+    # ── pg_hint_plan Demo ──
+    "hint.title": {"en": "pg_hint_plan Demo", "ja": "pg_hint_plan Demo"},
+    "hint.intro": {
+        "en": 'Reproduce a case where stale statistics cause an inefficient execution plan, and fix it with hints. <a href="https://github.com/ossc-db/pg_hint_plan" target="_blank" rel="noopener">pg_hint_plan</a> is a PostgreSQL extension that controls execution plans via SQL comments.',
+        "ja": '統計情報の劣化により非効率な実行計画が選ばれるケースを再現し、ヒントで修正する体験をします。<a href="https://github.com/ossc-db/pg_hint_plan" target="_blank" rel="noopener">pg_hint_plan</a> は SQL コメントで実行計画を制御する PostgreSQL エクステンションです。',
+    },
+    "hint.intro_dev": {
+        "en": 'Developer: <a href="https://github.com/ossc-db" target="_blank" rel="noopener">NTT OSS Center DBMS Development and Support Team</a> / License: PostgreSQL License',
+        "ja": '開発: <a href="https://github.com/ossc-db" target="_blank" rel="noopener">NTT OSS Center DBMS Development and Support Team</a> / ライセンス: PostgreSQL License',
+    },
+    "hint.scenario.title": {"en": "Scenario Explanation", "ja": "シナリオ解説"},
+    "hint.scenario.step1": {
+        "en": '<code>hint_demo.orders</code> table: INSERT <strong>500,000 rows</strong><br><small class="text-muted">status = shipped / processing / delivered / cancelled (no \'rush\')</small>',
+        "ja": '<code>hint_demo.orders</code> テーブルに <strong>500,000 行</strong>を INSERT<br><small class="text-muted">status = shipped / processing / delivered / cancelled の4種（\'rush\' は存在しない）</small>',
+    },
+    "hint.scenario.step2": {
+        "en": "<code>ANALYZE</code> to collect statistics &rarr; planner doesn't know about 'rush'",
+        "ja": "<code>ANALYZE</code> で統計情報を取得 → プランナーは 'rush' を知らない",
+    },
+    "hint.scenario.step3": {
+        "en": "INSERT <strong>200,000</strong> additional rows with status=<strong>'rush'</strong> (without ANALYZE)",
+        "ja": "追加で status=<strong>'rush'</strong> の行を <strong>200,000 行</strong> INSERT（ANALYZE しない）",
+    },
+    "hint.scenario.step4": {
+        "en": "At this point, rush is actually <strong>200,000 rows (28% of total)</strong>, but statistics show zero",
+        "ja": "この時点で rush は実際 <strong>200,000 行（全体の28%）</strong> だが、統計にはゼロ",
+    },
+    "hint.scenario.step5": {
+        "en": 'Planner thinks "rush doesn\'t exist or is extremely rare" &rarr; chooses <strong>Index Scan</strong> &rarr; massive random I/O',
+        "ja": "プランナーは「rush は存在しない or 極少数」と誤認 → <strong>Index Scan</strong> を選択 → 大量のランダム I/O",
+    },
+    "hint.scenario.step6": {
+        "en": "<code>/*+ SeqScan(orders) */</code> hint forces Seq Scan &rarr; sequential access is more efficient for large result sets",
+        "ja": "<code>/*+ SeqScan(orders) */</code> ヒントで Seq Scan を強制 → 大量行にはシーケンシャルが効率的",
+    },
+    "hint.scenario.note": {
+        "en": '<strong>Note:</strong> This demo disables parallel queries with <code>max_parallel_workers_per_gather = 0</code> to clearly show the difference between Index Scan and Seq Scan in a single process.',
+        "ja": '<strong>Note:</strong> このデモでは <code>max_parallel_workers_per_gather = 0</code> でパラレルクエリを無効化し、単一プロセスでの Index Scan vs Seq Scan の違いを明確にします。',
+    },
+    "hint.scenario.prereq": {
+        "en": '<strong>Prerequisite:</strong> <code>session_preload_libraries</code> or <code>shared_preload_libraries</code> must include <code>pg_hint_plan</code>. Setup checks this automatically.',
+        "ja": '<strong>前提条件:</strong> <code>session_preload_libraries</code> または <code>shared_preload_libraries</code> に <code>pg_hint_plan</code> が設定されている必要があります。Setup で自動チェックします。',
+    },
+    "hint.scenario.sf_note": {
+        "en": '<strong>Snowflake Postgres:</strong> Currently <code>pg_hint_plan</code> cannot be set in <code>session_preload_libraries</code>, so this demo does not work (requires a feature request to Snowflake).',
+        "ja": '<strong>Snowflake Postgres:</strong> 現時点では <code>session_preload_libraries</code> に <code>pg_hint_plan</code> を設定できないため、このデモは動作しません（Snowflake への機能リクエストが必要）。',
+    },
+    "hint.step1.title": {
+        "en": "Step 1: Check Statistics",
+        "ja": "Step 1: 統計情報の確認",
+    },
+    "hint.step1.desc": {
+        "en": "Compare old statistics (after ANALYZE) vs actual row counts.",
+        "ja": "ANALYZE 後の古い統計 vs 実際の行数を比較します。",
+    },
+    "hint.step2.title": {
+        "en": "Step 2: Compare Execution Plans (without vs with hints)",
+        "ja": "Step 2: 実行計画の比較（ヒントなし vs あり）",
+    },
+    "hint.step2.desc": {
+        "en": "EXPLAIN ANALYZE the same query without and with hints to compare execution plans and timings.",
+        "ja": "同じクエリをヒントなし・ありで EXPLAIN ANALYZE し、実行計画と所要時間を比較します。",
+    },
+    "hint.step2.no_hint": {
+        "en": "<strong>Without Hints</strong> (planner decides)",
+        "ja": "<strong>ヒントなし</strong>（プランナー任せ）",
+    },
+    "hint.step2.with_hint": {
+        "en": "<strong>With Hints</strong> (force SeqScan)",
+        "ja": "<strong>ヒントあり</strong>（SeqScan 強制）",
+    },
+    "hint.step3.title": {
+        "en": "Step 3: Fix with ANALYZE",
+        "ja": "Step 3: ANALYZE で統計を更新",
+    },
+    "hint.step3.desc": {
+        "en": "Running ANALYZE updates the statistics so the planner can choose the correct plan.",
+        "ja": "ANALYZE を実行して統計情報を最新化すると、プランナーが正しい計画を選ぶようになります。",
+    },
+    "hint.benchmark_tip": {
+        "en": '<strong>Benchmark Integration:</strong> Register hint/no-hint SQL on the <a href="/scripts">Scripts & Scenarios</a> page, and run them as custom scenarios in <a href="/benchmark/new">Benchmark</a> to compare TPS and latency numerically.',
+        "ja": '<strong>Benchmark 連携:</strong> ヒントあり/なしの SQL を <a href="/scripts">Scripts & Scenarios</a> に登録し、<a href="/benchmark/new">Benchmark</a> のカスタムシナリオで実行すると、TPS やレイテンシの違いを数値で比較できます。',
+    },
+
+    # ── pg_hint_plan JS messages ──
+    "hint.js.actual_rows": {
+        "en": "<strong>Actual Row Counts (COUNT):</strong>",
+        "ja": "<strong>実際の行数 (COUNT):</strong>",
+    },
+    "hint.js.planner_stats": {
+        "en": "<strong>Planner Statistics (pg_stats.most_common_vals):</strong>",
+        "ja": "<strong>プランナーの統計情報 (pg_stats.most_common_vals):</strong>",
+    },
+    "hint.js.stats_warning": {
+        "en": 'Statistics do not contain <code>rush</code>. The planner estimates nearly zero rows for rush.<br>In reality there are <strong>~200,000 rows</strong>, making Index Scan inefficient.',
+        "ja": '統計情報には <code>rush</code> が存在しません。プランナーは rush の行数をほぼゼロと推定します。<br>実際には <strong>~200,000行</strong> あるため、Index Scan は非効率です。',
+    },
+    "hint.js.after_analyze": {
+        "en": "<strong>Execution plan after ANALYZE (without hints):</strong>",
+        "ja": "<strong>ANALYZE 後の実行計画（ヒントなし）:</strong>",
+    },
+    "hint.js.analyze_success": {
+        "en": "ANALYZE updated the statistics, allowing the planner to correctly estimate rush = 200,000 rows.<br>The appropriate plan (Seq Scan) is now chosen even without hints.",
+        "ja": "ANALYZE により統計情報が更新され、プランナーが rush = 200,000 行を正しく推定できるようになりました。<br>ヒントなしでも適切な実行計画（Seq Scan）が選択されます。",
+    },
+    "hint.js.load_success": {
+        "en": "<code>LOAD 'pg_hint_plan'</code> succeeded. <strong>Hints are active.</strong><br>Click \"Run Both Plans\" in Step 2 to compare execution plans.",
+        "ja": "<code>LOAD 'pg_hint_plan'</code> が成功しました。<strong>ヒントが有効です。</strong><br>Step 2 の「Run Both Plans」で実行計画の違いを確認できます。",
+    },
+    "hint.js.load_fail": {
+        "en": '<strong>pg_hint_plan is available but library loading failed.</strong><br><code>session_preload_libraries</code> or <code>shared_preload_libraries</code> must include it.',
+        "ja": '<strong>pg_hint_plan はインストール可能ですが、ライブラリのロードに失敗しました。</strong><br><code>session_preload_libraries</code> または <code>shared_preload_libraries</code> に追加が必要です。',
+    },
+    "hint.js.not_available": {
+        "en": '<strong>pg_hint_plan is not available on this server.</strong><br>Not found in <code>pg_available_extensions</code>.',
+        "ja": '<strong>pg_hint_plan はこのサーバーでは利用できません。</strong><br><code>pg_available_extensions</code> に含まれていません。',
+    },
+
+    # ── pgvector Demo ──
+    "vector.title": {"en": "pgvector Demo", "ja": "pgvector Demo"},
+    "vector.intro": {
+        "en": 'Experience "semantic search" — converting text to vectors and finding similar documents. <a href="https://github.com/pgvector/pgvector" target="_blank" rel="noopener">pgvector</a> is an OSS extension that adds vector types and vector search to PostgreSQL.',
+        "ja": 'テキストをベクトルに変換し、意味的に似た文書を検索する「セマンティック検索」を体験します。<a href="https://github.com/pgvector/pgvector" target="_blank" rel="noopener">pgvector</a> は PostgreSQL にベクトル型とベクトル検索を追加する OSS エクステンションです。',
+    },
+    "vector.how_title": {"en": "How It Works", "ja": "仕組み"},
+    "vector.how_desc": {
+        "en": 'This demo uses a simple keyword-based vectorization with a business keyword dictionary.<br><small class="text-muted">(In production, use AI models like OpenAI Embeddings or Snowflake Cortex for higher accuracy)</small>',
+        "ja": 'このデモでは、ビジネス関連のキーワード辞書を使った簡易ベクトル化を行います。<br><small class="text-muted">（本番環境では OpenAI Embeddings や Snowflake Cortex などの AI モデルでより高精度なベクトルを生成します）</small>',
+    },
+    "vector.keywords_title": {
+        "en": "<strong>Keyword Dictionary (20-dimensional vector):</strong>",
+        "ja": "<strong>キーワード辞書（20次元ベクトル）:</strong>",
+    },
+    "vector.keywords_note": {
+        "en": "Count occurrences of each keyword to vectorize, then L2-normalize.",
+        "ja": "各キーワードの出現回数を数えてベクトル化し、L2正規化します。",
+    },
+    "vector.step1.title": {
+        "en": "Step 1: View Existing Sales Diary",
+        "ja": "Step 1: 既存の営業日報を確認",
+    },
+    "vector.step2.title": {
+        "en": "Step 2: INSERT New Diary Entry",
+        "ja": "Step 2: 新しい日報を INSERT",
+    },
+    "vector.step2.person": {"en": "Salesperson", "ja": "営業担当"},
+    "vector.step2.company": {"en": "Company", "ja": "会社名"},
+    "vector.step2.content": {"en": "Diary Content", "ja": "日報内容"},
+    "vector.step3.title": {
+        "en": "Step 3: Vectorize (UPDATE)",
+        "ja": "Step 3: ベクトル化 (UPDATE)",
+    },
+    "vector.step3.desc": {
+        "en": "Convert the text of inserted rows to vectors. Only rows with <code>embedding IS NULL</code> are processed.",
+        "ja": "INSERT した行のテキストをベクトルに変換します。<code>embedding IS NULL</code> の行のみが対象です。",
+    },
+    "vector.step4.title": {
+        "en": "Step 4: Semantic Search",
+        "ja": "Step 4: セマンティック検索",
+    },
+    "vector.step4.desc": {
+        "en": "Search with natural language and find similar diary entries.",
+        "ja": "自然言語で検索し、意味的に近い日報を見つけます。",
+    },
+    "vector.step4.search_label": {"en": "Search Text", "ja": "検索テキスト"},
+    "vector.step4.preset_label": {"en": "Preset", "ja": "プリセット"},
+    "vector.step4.results_title": {
+        "en": "<strong>Results (by cosine similarity):</strong>",
+        "ja": "<strong>検索結果（コサイン類似度順）:</strong>",
+    },
+
+    # ── pg_lake ──
+    "lake.title": {"en": "pg_lake", "ja": "pg_lake"},
+    "lake.intro": {
+        "en": 'A Snowflake-developed extension that adds Apache Iceberg and data lake access to PostgreSQL. <a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" rel="noopener">pg_lake</a> is an open-source project by Snowflake Labs.',
+        "ja": 'PostgreSQL に Apache Iceberg とデータレイクアクセス機能を追加する Snowflake 製エクステンション。<a href="https://github.com/Snowflake-Labs/pg_lake" target="_blank" rel="noopener">pg_lake</a> は Snowflake Labs が開発するオープンソースプロジェクトです。',
+    },
+    "lake.unavailable": {
+        "en": '<strong>pg_lake not found:</strong> pg_lake is not available in <code>pg_available_extensions</code> on this server. On Snowflake Postgres, install with <code>CREATE EXTENSION pg_lake CASCADE</code>. S3 storage integration must be configured first.',
+        "ja": '<strong>pg_lake が見つかりません:</strong> このサーバーの <code>pg_available_extensions</code> に pg_lake がありません。Snowflake Postgres では <code>CREATE EXTENSION pg_lake CASCADE</code> でインストールします。事前に S3 ストレージ統合の設定が必要です。',
+    },
+    # ── pg_lake Setup Guide ──
+    "lake.setup.title": {
+        "en": "Getting Started with pg_lake",
+        "ja": "pg_lake セットアップガイド",
+    },
+    "lake.setup.intro": {
+        "en": "Step-by-step guide to enable pg_lake on Snowflake Postgres. Some steps require AWS Console or Snowflake Worksheet — the app generates scripts you can copy.",
+        "ja": "Snowflake Postgres で pg_lake を有効化するためのステップバイステップガイドです。一部のステップは AWS Console や Snowflake Worksheet での作業が必要ですが、アプリがコピー可能なスクリプトを生成します。",
+    },
+    "lake.setup.card_desc": {
+        "en": "Configure S3 storage integration, IAM roles, and install pg_lake. The app generates AWS IAM policies and Snowflake SQL dynamically.",
+        "ja": "S3 ストレージ統合、IAM ロール設定、pg_lake インストールを行います。アプリが AWS IAM ポリシーと Snowflake SQL を動的に生成します。",
+    },
+    "lake.setup.config_title": {
+        "en": "Configuration Values",
+        "ja": "設定値",
+    },
+    "lake.setup.config_desc": {
+        "en": "Enter your values here. All scripts below will update automatically.",
+        "ja": "ここに値を入力してください。以下のスクリプトが自動的に更新されます。",
+    },
+    "lake.setup.step1.title": {
+        "en": "Create S3 Bucket",
+        "ja": "S3 バケットの作成",
+    },
+    "lake.setup.step1.desc": {
+        "en": "Create an S3 bucket in the <strong>same AWS region</strong> as your Snowflake account.",
+        "ja": "Snowflake アカウントと<strong>同じ AWS リージョン</strong>に S3 バケットを作成してください。",
+    },
+    "lake.setup.step1.note1": {
+        "en": "Block all public access (default settings are fine)",
+        "ja": "パブリックアクセスをすべてブロック（デフォルト設定で OK）",
+    },
+    "lake.setup.step1.note2": {
+        "en": "The bucket must be in the same region as your Snowflake account",
+        "ja": "バケットは Snowflake アカウントと同じリージョンに作成する必要があります",
+    },
+    "lake.setup.step2.title": {
+        "en": "Create IAM Policy",
+        "ja": "IAM ポリシーの作成",
+    },
+    "lake.setup.step2.desc": {
+        "en": "Create an IAM policy in AWS Console with the following JSON. The policy grants S3 read/write access to the bucket.",
+        "ja": "以下の JSON で AWS Console に IAM ポリシーを作成します。バケットへの S3 読み書きアクセスを許可するポリシーです。",
+    },
+    "lake.setup.step3.title": {
+        "en": "Create IAM Role",
+        "ja": "IAM ロールの作成",
+    },
+    "lake.setup.step3.desc": {
+        "en": "Create an IAM role and attach the policy from Step 2.",
+        "ja": "IAM ロールを作成し、Step 2 のポリシーをアタッチします。",
+    },
+    "lake.setup.step3.note1": {
+        "en": 'Trusted entity: <strong>AWS account</strong> (use your own account ID for now — will be updated in Step 6)',
+        "ja": '信頼されたエンティティ: <strong>AWS アカウント</strong>（まずは自分のアカウント ID で作成 — Step 6 で更新）',
+    },
+    "lake.setup.step3.note2": {
+        "en": '<strong>Important:</strong> Set "Maximum session duration" to <strong>12 hours</strong> (default 1 hour will not work)',
+        "ja": '<strong>重要:</strong>「最大セッション時間」を <strong>12 時間</strong>に設定してください（デフォルトの1時間では動作しません）',
+    },
+    "lake.setup.step4.title": {
+        "en": "Create Storage Integration",
+        "ja": "Storage Integration の作成",
+    },
+    "lake.setup.step4.desc": {
+        "en": "Run the following SQL in a <strong>Snowflake Worksheet</strong> as ACCOUNTADMIN.",
+        "ja": "以下の SQL を <strong>Snowflake Worksheet</strong> で ACCOUNTADMIN として実行してください。",
+    },
+    "lake.setup.step5.title": {
+        "en": "Get Snowflake ARN & External ID",
+        "ja": "Snowflake ARN と External ID の取得",
+    },
+    "lake.setup.step5.desc": {
+        "en": "Run DESCRIBE INTEGRATION in Snowflake and paste the two values below. These are needed to update the IAM trust policy.",
+        "ja": "Snowflake で DESCRIBE INTEGRATION を実行し、以下の2つの値を貼り付けてください。IAM 信頼ポリシーの更新に必要です。",
+    },
+    "lake.setup.step6.title": {
+        "en": "Update IAM Trust Policy",
+        "ja": "IAM Trust Policy の更新",
+    },
+    "lake.setup.step6.desc": {
+        "en": "Update the IAM role's trust policy in AWS Console with the Snowflake ARN and External ID from Step 5.",
+        "ja": "Step 5 で取得した Snowflake ARN と External ID を使い、AWS Console で IAM ロールの信頼ポリシーを更新してください。",
+    },
+    "lake.setup.step7.title": {
+        "en": "Attach Integration to Postgres Instance",
+        "ja": "Integration を Postgres インスタンスに紐付け",
+    },
+    "lake.setup.step7.desc": {
+        "en": "Run the following SQL in a <strong>Snowflake Worksheet</strong> as ACCOUNTADMIN to attach the storage integration.",
+        "ja": "以下の SQL を <strong>Snowflake Worksheet</strong> で ACCOUNTADMIN として実行し、ストレージ統合を紐付けてください。",
+    },
+    "lake.setup.step8.title": {
+        "en": "Install pg_lake Extension",
+        "ja": "pg_lake エクステンションのインストール",
+    },
+    "lake.setup.step8.desc": {
+        "en": "Click <strong>Run</strong> to install pg_lake and all dependent extensions.",
+        "ja": "<strong>Run</strong> をクリックして pg_lake と依存エクステンションをインストールします。",
+    },
+    "lake.setup.step9.title": {
+        "en": "Set Default S3 Location",
+        "ja": "デフォルト S3 ロケーションの設定",
+    },
+    "lake.setup.step9.desc": {
+        "en": "Set the default S3 prefix where Iceberg tables will store data.",
+        "ja": "Iceberg テーブルがデータを格納するデフォルトの S3 プレフィックスを設定します。",
+    },
+
+    # ── pg_lake Demos ──
+    "lake.demos.title": {
+        "en": "pg_lake Demos",
+        "ja": "pg_lake デモ",
+    },
+    "lake.demos.card_desc": {
+        "en": "Interactive demos: Iceberg tables, COPY TO/FROM S3, Foreign Tables, and IoT Hot/Cold partition lifecycle.",
+        "ja": "インタラクティブデモ: Iceberg テーブル、COPY TO/FROM S3、Foreign Table、IoT Hot/Cold パーティションライフサイクル。",
+    },
+
+    # ── Partitioning Primer ──
+    "lake.partition.title": {
+        "en": "PostgreSQL Partitioning Primer",
+        "ja": "PostgreSQL パーティショニングの基礎",
+    },
+    "lake.partition.intro": {
+        "en": "PostgreSQL natively supports <strong>declarative partitioning</strong> (PG10+). Large tables are split into smaller physical partitions, enabling the planner to skip irrelevant partitions entirely (<strong>partition pruning</strong>). This is the foundation for the Hot/Cold architecture in Demo 4.",
+        "ja": "PostgreSQL は <strong>宣言的パーティショニング</strong>（PG10+）をネイティブサポートしています。大きなテーブルを小さな物理パーティションに分割し、プランナーが不要なパーティションを完全にスキップ（<strong>パーティションプルーニング</strong>）できます。これが Demo 4 の Hot/Cold アーキテクチャの基盤です。",
+    },
+    "lake.partition.types_title": {
+        "en": "Partition Types",
+        "ja": "パーティションの種類",
+    },
+    "lake.partition.type": {"en": "Type", "ja": "種類"},
+    "lake.partition.syntax": {"en": "Syntax", "ja": "構文"},
+    "lake.partition.use_case": {"en": "Use Case", "ja": "ユースケース"},
+    "lake.partition.range_use": {
+        "en": "Time-series, date ranges, numeric ranges (most common for IoT/logs)",
+        "ja": "時系列、日付範囲、数値範囲（IoT/ログで最も一般的）",
+    },
+    "lake.partition.list_use": {
+        "en": "Categorical values: region, status, tenant ID",
+        "ja": "カテゴリ値: リージョン、ステータス、テナント ID",
+    },
+    "lake.partition.hash_use": {
+        "en": "Even distribution when no natural range/list key exists",
+        "ja": "自然なレンジ/リストキーがない場合の均等分散",
+    },
+    "lake.partition.pruning_title": {
+        "en": "Partition Pruning",
+        "ja": "パーティションプルーニング",
+    },
+    "lake.partition.pruning_desc": {
+        "en": "When a query includes a WHERE clause on the partition key, PostgreSQL automatically excludes partitions that cannot contain matching rows. This happens at <strong>plan time</strong> (static pruning) or <strong>execution time</strong> (dynamic pruning), dramatically reducing I/O for large tables.",
+        "ja": "クエリにパーティションキーの WHERE 句が含まれる場合、PostgreSQL は該当行を含み得ないパーティションを自動的に除外します。これは<strong>プラン時</strong>（静的プルーニング）または<strong>実行時</strong>（動的プルーニング）に行われ、大規模テーブルの I/O を劇的に削減します。",
+    },
+    "lake.partition.tools_title": {
+        "en": "Key Extensions for Partition Management",
+        "ja": "パーティション管理の主要エクステンション",
+    },
+    "lake.partition.tool": {"en": "Extension", "ja": "エクステンション"},
+    "lake.partition.role": {"en": "Role", "ja": "役割"},
+    "lake.partition.partman_desc": {
+        "en": "Automates partition creation, pre-creation (premake), and retention. Manages daily/monthly/yearly partitions without manual DDL.",
+        "ja": "パーティションの自動作成、事前作成（premake）、保持期間管理を自動化。日次/月次/年次パーティションを手動DDLなしで管理。",
+    },
+    "lake.partition.incremental_desc": {
+        "en": "Continuous incremental data sync (pg_cron-based). Tracks processed ranges and appends only new data to the target — exactly-once semantics.",
+        "ja": "継続的な差分データ同期（pg_cron ベース）。処理済み範囲を追跡し、ターゲットに新しいデータのみを追記 — exactly-once セマンティクス。",
+    },
+    "lake.partition.pglake_desc": {
+        "en": "Provides Iceberg tables (S3-backed) and Foreign Tables (S3 read). Cold partitions can be FDW-attached to the parent table for transparent access.",
+        "ja": "Iceberg テーブル（S3 バック）と Foreign Table（S3 読み取り）を提供。Cold パーティションを親テーブルに FDW アタッチして透過的にアクセス可能。",
+    },
+    "lake.partition.fdw_note": {
+        "en": "<strong>Why FDW partitions?</strong> PostgreSQL supports Foreign Tables as partition children (PG11+). Unlike UNION ALL views, FDW partitions benefit from <strong>guaranteed partition pruning</strong>, transparent INSERT routing to heap partitions, and native pg_partman integration.",
+        "ja": "<strong>なぜ FDW パーティション？</strong> PostgreSQL は Foreign Table をパーティション子テーブルとしてサポート（PG11+）。UNION ALL ビューと異なり、FDW パーティションは<strong>確実なパーティションプルーニング</strong>、heap パーティションへの透過的な INSERT ルーティング、pg_partman とのネイティブ統合が利点です。",
+    },
+
+    "lake.status_ready": {
+        "en": "pg_lake is installed and ready.",
+        "ja": "pg_lake はインストール済みで利用可能です。",
+    },
+    "lake.overview": {"en": "Overview", "ja": "概要"},
+    "lake.sql_samples": {
+        "en": "SQL Samples (available in the future)",
+        "ja": "SQL サンプル（将来利用可能）",
+    },
+    "lake.extensions": {"en": "Extension List", "ja": "エクステンション一覧"},
+
+    # ── pg_lake Demo 1 ──
+    "lake.demo1.title": {
+        "en": "Demo 1: Iceberg Table Basics",
+        "ja": "Demo 1: Iceberg テーブルの基本操作",
+    },
+    "lake.demo1.desc": {
+        "en": "Create an Iceberg table with time partitioning, INSERT sample data, and run aggregate queries. Click <strong>Setup</strong> to install pg_lake and create demo tables.",
+        "ja": "時系列パーティション付き Iceberg テーブルを作成し、サンプルデータを INSERT して集計クエリを実行します。<strong>Setup</strong> をクリックして pg_lake のインストールとデモテーブルを作成してください。",
+    },
+    "lake.demo1.query_title": {
+        "en": "Aggregate Query with Partition Pruning",
+        "ja": "パーティションプルーニング付き集計クエリ",
+    },
+
+    # ── pg_lake Demo 2 ──
+    "lake.demo2.title": {
+        "en": "Demo 2: COPY TO/FROM — S3 Export/Import",
+        "ja": "Demo 2: COPY TO/FROM — S3 エクスポート・インポート",
+    },
+    "lake.demo2.desc": {
+        "en": "Export PostgreSQL tables to S3 as Parquet and import them back. This is the simplest way to move data between Postgres and the data lake.",
+        "ja": "PostgreSQL テーブルを S3 に Parquet 形式でエクスポートし、読み戻します。Postgres とデータレイク間のデータ移動の最もシンプルな方法です。",
+    },
+    "lake.demo2.s3_note": {
+        "en": "<strong>Note:</strong> S3 bucket configuration is required. Replace <code>s3://your-bucket/</code> with your actual S3 path. In Snowflake Postgres, EAI network rules must allow S3 access.",
+        "ja": "<strong>注意:</strong> S3 バケットの設定が必要です。<code>s3://your-bucket/</code> を実際の S3 パスに置き換えてください。Snowflake Postgres では EAI ネットワークルールで S3 アクセスを許可する必要があります。",
+    },
+    "lake.demo2.export_title": {
+        "en": "Export to S3",
+        "ja": "S3 へのエクスポート",
+    },
+    "lake.demo2.import_title": {
+        "en": "Import from S3",
+        "ja": "S3 からのインポート",
+    },
+
+    # ── pg_lake Demo 3 ──
+    "lake.demo3.title": {
+        "en": "Demo 3: Foreign Table — Query S3 Directly",
+        "ja": "Demo 3: Foreign Table — S3 を直接クエリ",
+    },
+    "lake.demo3.desc": {
+        "en": "Query Parquet files on S3 directly via Foreign Tables without copying data into PostgreSQL.",
+        "ja": "データを PostgreSQL にコピーせずに、Foreign Table 経由で S3 上の Parquet ファイルを直接クエリします。",
+    },
+
+    # ── pg_lake Demo 4 ──
+    "lake.demo4.title": {
+        "en": "Demo 4: IoT Hot/Cold Partition Lifecycle",
+        "ja": "Demo 4: IoT Hot/Cold パーティションライフサイクル",
+    },
+    "lake.demo4.desc": {
+        "en": "Experience the full lifecycle of IoT time-series data: Hot partitions (local heap) for recent data, Cold partitions (S3 Iceberg via FDW) for historical data. Uses <code>pg_partman</code> + <code>pg_incremental</code> + <code>pg_lake</code>.",
+        "ja": "IoT 時系列データのフルライフサイクルを体験します。直近データは Hot パーティション（ローカル heap）、過去データは Cold パーティション（S3 Iceberg FDW 経由）。<code>pg_partman</code> + <code>pg_incremental</code> + <code>pg_lake</code> を使用します。",
+    },
+    "lake.demo4.arch_note": {
+        "en": "Recommended stack from <a href=\"https://www.snowflake.com/en/engineering-blog/postgres-time-series-iceberg/\" target=\"_blank\">Snowflake Engineering Blog</a>: pg_partman + pg_incremental + pg_lake for high-performance time-series with Iceberg.",
+        "ja": "<a href=\"https://www.snowflake.com/en/engineering-blog/postgres-time-series-iceberg/\" target=\"_blank\">Snowflake Engineering Blog</a> 推奨スタック: pg_partman + pg_incremental + pg_lake による高性能時系列 + Iceberg 構成。",
+    },
+    "lake.demo4.arch_diagram": {
+        "en": "iot.sensor_data (PARTITION BY RANGE(ts))\n  ├── p_today      (heap)    ← active writes\n  ├── p_yesterday  (heap)    ← recent\n  ├── ...          (heap)    ← hot (7 days)\n  │       ↓ pg_incremental (every minute)\n  │       ↓ INSERT INTO iceberg_archive\n  ├── p_day_8     (FDW → S3 Iceberg)  ← cold\n  └── p_day_9     (FDW → S3 Iceberg)\n\nSnowflake → S3 Iceberg READ (1-min freshness)",
+        "ja": "iot.sensor_data (PARTITION BY RANGE(ts))\n  ├── p_今日       (heap)    ← アクティブ書き込み\n  ├── p_昨日       (heap)    ← 直近\n  ├── ...          (heap)    ← Hot（7日間）\n  │       ↓ pg_incremental（毎分）\n  │       ↓ INSERT INTO iceberg_archive\n  ├── p_8日前     (FDW → S3 Iceberg)  ← Cold\n  └── p_9日前     (FDW → S3 Iceberg)\n\nSnowflake → S3 Iceberg を READ（1分鮮度）",
+    },
+    "lake.demo4.step1": {
+        "en": "Create partitioned table + pg_partman setup",
+        "ja": "パーティションテーブル作成 + pg_partman 設定",
+    },
+    "lake.demo4.step2": {
+        "en": "Create Iceberg archive table",
+        "ja": "Iceberg アーカイブテーブル作成",
+    },
+    "lake.demo4.step3_pipe": {
+        "en": "Create pg_incremental pipeline",
+        "ja": "pg_incremental パイプラインの作成",
+    },
+    "lake.demo4.step4_data": {
+        "en": "Insert 100K sample IoT rows (14 days)",
+        "ja": "サンプル IoT データ 100K 行を INSERT（14日分）",
+    },
+    "lake.demo4.step5_sync": {
+        "en": "Sync to Iceberg archive + verify",
+        "ja": "Iceberg アーカイブに同期 + 確認",
+    },
+    "lake.demo4.step6_switch": {
+        "en": "Switch Day-8 partition: heap → FDW (DETACH / ATTACH)",
+        "ja": "8日前パーティション切替: heap → FDW (DETACH / ATTACH)",
+    },
+    "lake.demo4.step6_desc": {
+        "en": "DETACH the old heap partition, DROP it (data is already in S3 via Iceberg), CREATE a Foreign Table pointing to the S3 path, then ATTACH it back as a partition. The parent table remains queryable throughout.",
+        "ja": "古い heap パーティションを DETACH → DROP（データは既に Iceberg 経由で S3 に存在）→ S3 パスを指す Foreign Table を作成 → パーティションとして ATTACH。親テーブルは一貫してクエリ可能です。",
+    },
+    "lake.demo4.step7_verify": {
+        "en": "Verify partition pruning (Hot vs Cold)",
+        "ja": "パーティションプルーニングの確認（Hot vs Cold）",
+    },
+    "lake.demo4.step8_update": {
+        "en": "Update historical data + automation",
+        "ja": "過去データの更新 + 自動化",
+    },
+
+    # ── pg_lake Snowflake Reference ──
+    "lake.sf_ref.title": {
+        "en": "Snowflake Integration Reference",
+        "ja": "Snowflake 連携リファレンス",
+    },
+    "lake.sf_ref.desc": {
+        "en": "SQL reference for reading Iceberg tables from Snowflake. Run these commands on the <strong>Snowflake side</strong> (not in this app) to set up External Volumes, Catalog Integration, and Iceberg Table access.",
+        "ja": "Snowflake から Iceberg テーブルを読み取るための SQL リファレンスです。これらのコマンドは<strong>Snowflake 側</strong>（このアプリ内ではなく）で実行し、External Volume、Catalog Integration、Iceberg テーブルアクセスを設定します。",
+    },
+
+    # ── Scripts & Scenarios ──
+    "scripts.title": {"en": "Scripts & Scenarios", "ja": "Scripts & Scenarios"},
+    "scripts.sql_info": {
+        "en": 'User-registered scripts appear in the SQL Client\'s <strong>Samples</strong> dropdown. Register PostgreSQL learning scripts or business-specific queries as samples.',
+        "ja": 'SQL Client の <strong>Samples</strong> ドロップダウンにユーザー登録スクリプトが追加されます。PostgreSQL学習や業務固有のクエリをサンプルとして登録できます。',
+    },
+    "scripts.bench_info": {
+        "en": 'Register custom scenarios for benchmarks. Each scenario consists of a <strong>Write Script</strong> (write transactions) and a <strong>Read Script</strong> (read transactions), with configurable execution ratios.<br>Uses pgbench\'s <code>-f script@weight</code> syntax.',
+        "ja": 'ベンチマーク用のカスタムシナリオを登録します。<strong>Write Script</strong>（書き込みトランザクション）と<strong>Read Script</strong>（読み取りトランザクション）の2つを1組として登録し、ベンチマーク実行時にそれぞれの実行割合を指定できます。<br>pgbench の <code>-f script@weight</code> 構文を利用します。',
+    },
+}
+
+
+def get_lang() -> str:
+    """Get current language from cookie, defaulting to English."""
+    return request.cookies.get("lang", "en")
+
+
+def t(key: str) -> Markup:
+    """Translate a key to the current language.
+
+    Returns Markup so HTML in translations is rendered, not escaped.
+    """
+    lang = get_lang()
+    entry = TRANSLATIONS.get(key)
+    if entry is None:
+        return Markup(key)
+    return Markup(entry.get(lang, entry.get("en", key)))

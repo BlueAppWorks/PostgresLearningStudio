@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}SQL Client - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>SQL Client</h2>
+    <div class="d-flex gap-2 align-items-center">
+        <select class="form-select form-select-sm" id="targetSelect" style="width: auto; min-width: 200px;">
+            {% for t in targets %}
+            <option value="{{ t.target_id }}">
+                {{ t.name }}{% if t.is_primary %} (Primary){% endif %}
+            </option>
+            {% endfor %}
+        </select>
+        <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                    id="samplesDropdown" data-bs-toggle="dropdown">
+                Samples
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" style="max-height: 400px; overflow-y: auto; min-width: 320px;">
+                {% for cat in categories %}
+                <li><h6 class="dropdown-header">{{ cat }}</h6></li>
+                {% for s in samples if s.category == cat %}
+                <li>
+                    <a class="dropdown-item sample-item" href="#" data-sample-id="{{ s.id }}">
+                        <strong>{{ s.title }}</strong>
+                        <br><small class="text-muted">{{ s.description }}</small>
+                    </a>
+                </li>
+                {% endfor %}
+                {% if not loop.last %}
+                <li><hr class="dropdown-divider"></li>
+                {% endif %}
+                {% endfor %}
+            </ul>
+        </div>
+        <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#helpModal">
+            Help
+        </button>
+    </div>
+</div>
+
+<div class="row">
+    <!-- SQL Editor (left) -->
+    <div class="col" id="editorCol">
+        <div class="card mb-3">
+            <div class="card-body p-2">
+                <div class="sql-editor-wrap">
+                    <textarea id="sqlEditor" class="sql-editor" spellcheck="false"
+                              placeholder="SELECT * FROM pg_stat_activity;  (or try \dt, \d tablename ...)"
+                              rows="12">SELECT 1 AS hello;</textarea>
+                </div>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="sql-toolbar d-flex gap-2 flex-wrap">
+                    <button class="btn btn-primary btn-sm" id="btnExecute" onclick="executeSQL('plain')">
+                        Execute
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="executeSQL('explain')">
+                        EXPLAIN
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="executeSQL('analyze')">
+                        ANALYZE
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="executeSQL('buffers')">
+                        BUFFERS
+                    </button>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="form-check form-switch me-2">
+                        <input class="form-check-input" type="checkbox" id="autoCommitToggle" checked>
+                        <label class="form-check-label small" for="autoCommitToggle">Auto Commit</label>
+                    </div>
+                    <span id="txnBadge" class="badge bg-secondary" style="display:none">TXN</span>
+                    <small class="text-warning" id="execHint"></small>
+                    <small class="text-muted">Ctrl+Enter to execute</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reference Panel (right, shown when sample is loaded) -->
+    <div class="col-md-5" id="referencePanel" style="display: none;">
+        <div class="card mb-3 reference-panel">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <strong id="referenceTitle">Sample Script</strong>
+                <div class="d-flex gap-1">
+                    <button class="btn btn-outline-primary btn-sm" onclick="copyToEditor()"
+                            title="Copy selected text to editor">
+                        Copy to Editor
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="closeReference()">
+                        Close
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <pre class="reference-code" id="referenceCode"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results -->
+<div id="resultsArea" class="card" style="display: none;">
+    <div class="card-header d-flex justify-content-between align-items-center" id="resultsHeader">
+        <span id="resultsInfo"></span>
+        <span id="resultsTiming" class="text-muted"></span>
+    </div>
+    <div class="card-body p-0" id="resultsBody">
+        <!-- Table or text results will be injected here -->
+    </div>
+</div>
+
+<!-- Loading spinner -->
+<div id="loadingIndicator" class="text-center py-4" style="display: none;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Executing...</span>
+    </div>
+    <p class="text-muted mt-2">Executing query...</p>
+</div>
+
+<!-- Help Modal -->
+<div class="modal fade" id="helpModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">SQL Client Help</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6>Keyboard Shortcuts</h6>
+                <table class="table table-sm">
+                    <tbody>
+                        <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Execute SQL (or selected text only)</td></tr>
+                        <tr><td><kbd>Tab</kbd></td><td>Insert 2 spaces</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3">Partial Execution</h6>
+                <p>Select a portion of SQL in the editor and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+                   (or click Execute) to run only the selected text.
+                   This is useful for executing one statement at a time from a multi-statement script.</p>
+
+                <h6 class="mt-3">EXPLAIN Modes</h6>
+                <table class="table table-sm">
+                    <tbody>
+                        <tr><td><strong>Execute</strong></td><td>Run SQL as-is</td></tr>
+                        <tr><td><strong>EXPLAIN</strong></td><td>Show query plan (no execution)</td></tr>
+                        <tr><td><strong>ANALYZE</strong></td><td>EXPLAIN ANALYZE (execute + actual timings)</td></tr>
+                        <tr><td><strong>BUFFERS</strong></td><td>EXPLAIN (ANALYZE, BUFFERS) with I/O stats</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3">Sample Scripts</h6>
+                <p>Click <strong>Samples</strong> to open a learning script in the reference panel.
+                   Select text in the reference panel, then click <strong>Copy to Editor</strong> to
+                   paste it into the editor. Execute step by step at your own pace.</p>
+
+                <h6 class="mt-3">psql Commands</h6>
+                <table class="table table-sm">
+                    <tbody>
+                        <tr><td><code>\dt</code></td><td>List tables</td></tr>
+                        <tr><td><code>\d tablename</code></td><td>Describe table columns</td></tr>
+                        <tr><td><code>\di</code></td><td>List indexes</td></tr>
+                        <tr><td><code>\l</code></td><td>List databases</td></tr>
+                        <tr><td><code>\du</code></td><td>List roles</td></tr>
+                        <tr><td><code>\dn</code></td><td>List schemas</td></tr>
+                        <tr><td><code>\dv</code></td><td>List views</td></tr>
+                        <tr><td><code>\df</code></td><td>List functions</td></tr>
+                        <tr><td><code>\conninfo</code></td><td>Connection info</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/sql_client.js') }}"></script>
+{% endblock %}

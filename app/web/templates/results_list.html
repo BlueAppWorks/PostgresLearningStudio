@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Results - Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Benchmark Results</h2>
+    <a href="/benchmark/new" class="btn btn-primary">New Benchmark</a>
+</div>
+
+<form method="POST" action="/results/delete" id="deleteForm">
+<div class="card">
+    <div class="card-body p-0">
+        {% if runs %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="resultsTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" class="form-check-input" id="selectAll"
+                                   onchange="toggleSelectAll(this)">
+                        </th>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>Target</th>
+                        <th>Status</th>
+                        <th>TPS</th>
+                        <th>Latency (ms)</th>
+                        <th>Duration</th>
+                        <th>PG Version</th>
+                        <th>Started</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" class="form-check-input run-check"
+                                   name="run_ids" value="{{ run.run_id }}">
+                        </td>
+                        <td>{{ run.run_id }}</td>
+                        <td>{{ run.run_name or '-' }}</td>
+                        <td>{{ run.target_name or '-' }}</td>
+                        <td>
+                            {% if run.status == 'completed' %}
+                                <span class="badge bg-success">completed</span>
+                            {% elif run.status == 'running' %}
+                                <span class="badge bg-primary">running</span>
+                            {% elif run.status == 'failed' %}
+                                <span class="badge bg-danger">failed</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ run.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ "%.1f"|format(run.tps) if run.tps else '-' }}</td>
+                        <td>{{ "%.2f"|format(run.latency_avg_ms) if run.latency_avg_ms else '-' }}</td>
+                        <td>{{ run.duration or '-' }}s</td>
+                        <td>{{ (run.pg_version or '')[:30] }}</td>
+                        <td>{{ run.started_at.strftime('%Y-%m-%d %H:%M') if run.started_at else '-' }}</td>
+                        <td><a href="/results/{{ run.run_id }}" class="btn btn-sm btn-outline-light">Detail</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer">
+            <button type="submit" class="btn btn-sm btn-outline-danger" id="deleteBtn"
+                    onclick="return confirm('Delete selected benchmark runs? This cannot be undone.');">
+                Delete Selected
+            </button>
+        </div>
+        {% else %}
+        <p class="p-3 text-muted mb-0">No benchmark results yet.</p>
+        {% endif %}
+    </div>
+</div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleSelectAll(el) {
+    document.querySelectorAll('.run-check').forEach(function(cb) {
+        cb.checked = el.checked;
+    });
+}
+</script>
+{% endblock %}
