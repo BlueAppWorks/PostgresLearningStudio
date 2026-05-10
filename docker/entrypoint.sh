@@ -70,20 +70,11 @@ while true; do
 done
 
 # ============================================================
-# Auto-create benchmark database if needed
+# Auto-create benchmark database if needed (uses psycopg, not psql)
 # ============================================================
 echo ""
-echo "Checking if database '${PGDATABASE}' exists..."
-DB_EXISTS=$(PGDATABASE=postgres psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" \
-    -tAc "SELECT 1 FROM pg_database WHERE datname='${PGDATABASE}'" 2>/dev/null || echo "0")
-
-if [ "${DB_EXISTS}" != "1" ]; then
-    echo "Creating database '${PGDATABASE}'..."
-    PGDATABASE=postgres psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" \
-        -c "CREATE DATABASE ${PGDATABASE};" 2>&1 || echo "WARNING: Database creation failed (Postgres may still be starting)"
-else
-    echo "Database '${PGDATABASE}' already exists"
-fi
+echo "Checking / creating database '${PGDATABASE}'..."
+python3 /init_db.py
 
 echo "NOTE: If Postgres is still starting, the Web UI will be available but DB operations may fail until Postgres is ready."
 
