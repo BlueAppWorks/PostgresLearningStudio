@@ -308,6 +308,235 @@ def remove_cron():
         return jsonify({"error": str(e).strip()[:500]}), 500
 
 
+# ── Auto-Mirror ──
+
+
+@pg_lake_bp.route("/mirror")
+def mirror_page():
+    status = _get_pg_lake_status()
+    instance_name = _get_instance_name()
+    return render_template(
+        "pg_lake_mirror.html",
+        pg_lake_status=status,
+        instance_name=instance_name,
+    )
+
+
+@pg_lake_bp.route("/mirror-install", methods=["POST"])
+def mirror_install():
+    """Install the mirror schema by executing sql/mirror.sql."""
+    sql_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "sql", "mirror.sql"
+    )
+    try:
+        with open(sql_path) as f:
+            content = f.read()
+    except FileNotFoundError:
+        return jsonify({"error": f"mirror.sql not found at {sql_path}"}), 500
+
+    stmts = _split_sql(content)
+    results = []
+    try:
+        with get_connection() as conn:
+            conn.autocommit = True
+            for stmt in stmts:
+                label = stmt.strip().split("\n")[0][:80]
+                start = time.monotonic()
+                try:
+                    conn.execute(stmt)
+                    elapsed = round((time.monotonic() - start) * 1000, 1)
+                    results.append({"label": label, "status": "ok", "time_ms": elapsed})
+                except Exception as e:
+                    elapsed = round((time.monotonic() - start) * 1000, 1)
+                    results.append({
+                        "label": label, "status": "error",
+                        "error": str(e).strip()[:200], "time_ms": elapsed,
+                    })
+    except Exception as e:
+        return jsonify({"error": str(e).strip()[:500]}), 500
+
+    return jsonify({"results": results})
+
+
+@pg_lake_bp.route("/mirror-run", methods=["POST"])
+def mirror_run():
+    """Run mirror.setup() for a schema."""
+    data = request.get_json(silent=True) or {}
+    src = data.get("src_schema", "app")
+    dst = data.get("dst_schema", "app_mirror")
+    try:
+        with get_connection() as conn:
+            conn.autocommit = True
+            cur = conn.execute(
+                "SELECT mirror.setup(%s, %s)", (src, dst)
+            )
+            result = cur.fetchone()[0]
+        return jsonify({"result": result})
+    except Exception as e:
+        return jsonify({"error": str(e).strip()[:500]}), 500
+
+
+@pg_lake_bp.route("/mirror-reconcile", methods=["POST"])
+def mirror_reconcile():
+    """Run mirror.reconcile_all()."""
+    try:
+        with get_connection() as conn:
+            conn.autocommit = True
+            cur = conn.execute("SELECT mirror.reconcile_all()")
+            result = cur.fetchone()[0]
+        return jsonify({"result": result})
+    except Exception as e:
+        return jsonify({"error": str(e).strip()[:500]}), 500
+
+
+@pg_lake_bp.route("/mirror-status", methods=["POST"])
+def mirror_status():
+    """Return mirror.status() as JSON."""
+    try:
+        with get_connection() as conn:
+            conn.autocommit = True
+            cur = conn.execute("SELECT * FROM mirror.status()")
+            if cur.description:
+                cols = [d.name for d in cur.description]
+                rows = [[str(v) if v is not None else None for v in r]
+                        for r in cur.fetchall()]
+                return jsonify({"columns": cols, "rows": rows})
+            return jsonify({"columns": [], "rows": []})
+    except Exception as e:
+        return jsonify({"error": str(e).strip()[:500]}), 500
+
+
+@pg_lake_bp.route("/mirror-cron", methods=["POST"])
+def mirror_cron():
+    """Schedule mirror reconciliation and INSERT pipeline execution via pg_cron."""
+    results = []
+    pg_database = os.environ.get("PGDATABASE", "benchmark")
+    try:
+        with get_postgres_db_connection() as conn:
+            conn.autocommit = True
+
+            start = time.monotonic()
+            try:
+                conn.execute("CREATE EXTENSION IF NOT EXISTS pg_cron CASCADE")
+                elapsed = round((time.monotonic() - start) * 1000, 1)
+                results.append({"label": "Install pg_cron", "status": "ok",
+                                "time_ms": elapsed})
+            except Exception as e:
+                elapsed = round((time.monotonic() - start) * 1000, 1)
+                results.append({"label": "Install pg_cron", "status": "error",
+                                "error": str(e).strip()[:200], "time_ms": elapsed})
+                return jsonify({"results": results}), 500
+
+        with get_postgres_db_connection() as conn:
+            conn.autocommit = True
+
+            # Schedule INSERT pipelines (every 1 minute)
+            start = time.monotonic()
+            try:
+                conn.execute(
+                    "SELECT cron.schedule_in_database("
+                    "  'mirror_pipelines',"
+                    "  '* * * * *',"
+                    "  $$SELECT pipeline_name, incremental.execute_pipeline(pipeline_name)"
+                    "    FROM incremental.pipelines"
+                    "    WHERE pipeline_name LIKE 'mirror_%'$$,"
+                    f" '{pg_database}'"
+                    ")"
+                )
+                elapsed = round((time.monotonic() - start) * 1000, 1)
+                results.append({
+                    "label": "Schedule INSERT pipelines (every 1 min)",
+                    "status": "ok", "time_ms": elapsed,
+                })
+            except Exception as e:
+                elapsed = round((time.monotonic() - start) * 1000, 1)
+                err = str(e).strip()[:200]
+                if "already exists" in err.lower() or "duplicate" in err.lower():
+                    results.append({"label": "INSERT pipelines", "status": "ok",
+                                    "value": "already scheduled", "time_ms": elapsed})
+                else:
+                    results.append({"label": "INSERT pipelines", "status": "error",
+                                    "error": err, "time_ms": elapsed})
+
+            # Schedule reconciliation (every 15 minutes)
+            start = time.monotonic()
+            try:
+                conn.execute(
+                    "SELECT cron.schedule_in_database("
+                    "  'mirror_reconcile',"
+                    "  '*/15 * * * *',"
+                    "  $$SELECT mirror.reconcile_all()$$,"
+                    f" '{pg_database}'"
+                    ")"
+                )
+                elapsed = round((time.monotonic() - start) * 1000, 1)
+                results.append({
+                    "label": "Schedule reconciliation (every 15 min)",
+                    "status": "ok", "time_ms": elapsed,
+                })
+            except Exception as e:
+                elapsed = round((time.monotonic() - start) * 1000, 1)
+                err = str(e).strip()[:200]
+                if "already exists" in err.lower() or "duplicate" in err.lower():
+                    results.append({"label": "Reconciliation", "status": "ok",
+                                    "value": "already scheduled", "time_ms": elapsed})
+                else:
+                    results.append({"label": "Reconciliation", "status": "error",
+                                    "error": err, "time_ms": elapsed})
+
+            # List jobs
+            cur = conn.execute(
+                "SELECT jobid, schedule, command, database FROM cron.job "
+                "WHERE jobname LIKE 'mirror_%'"
+            )
+            jobs = cur.fetchall()
+            job_info = "; ".join(f"#{j[0]} {j[1]} → {j[3]}" for j in jobs)
+            results.append({"label": "Active mirror cron jobs", "status": "ok",
+                            "value": job_info or "(none)"})
+
+    except Exception as e:
+        return jsonify({"error": str(e).strip()[:500]}), 500
+    return jsonify({"results": results})
+
+
+@pg_lake_bp.route("/mirror-cron-remove", methods=["POST"])
+def mirror_cron_remove():
+    """Remove mirror cron jobs."""
+    try:
+        with get_postgres_db_connection() as conn:
+            conn.autocommit = True
+            try:
+                conn.execute("SELECT cron.unschedule('mirror_pipelines')")
+            except Exception:
+                pass
+            try:
+                conn.execute("SELECT cron.unschedule('mirror_reconcile')")
+            except Exception:
+                pass
+        return jsonify({"message": "Mirror cron jobs removed."})
+    except Exception as e:
+        return jsonify({"error": str(e).strip()[:500]}), 500
+
+
+def _split_sql(content: str) -> list[str]:
+    """Split SQL content into individual statements, respecting $$ blocks."""
+    stmts = []
+    buf: list[str] = []
+    depth = 0
+    for line in content.split("\n"):
+        if line.strip().startswith("--") and not buf:
+            continue
+        count = line.count("$$")
+        depth = (depth + count) % 2
+        buf.append(line)
+        if line.rstrip().endswith(";") and depth == 0:
+            stmt = "\n".join(buf).strip()
+            if stmt and stmt != ";":
+                stmts.append(stmt)
+            buf = []
+    return stmts
+
+
 def _pg_lake_setup_steps():
     return [
         ("Install pg_lake", "CREATE EXTENSION IF NOT EXISTS pg_lake CASCADE"),

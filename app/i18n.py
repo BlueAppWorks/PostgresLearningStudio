@@ -631,6 +631,124 @@ TRANSLATIONS = {
         "ja": "Snowflake から Iceberg テーブルを読み取るための SQL リファレンスです。これらのコマンドは<strong>Snowflake 側</strong>（このアプリ内ではなく）で実行し、External Volume、Catalog Integration、Iceberg テーブルアクセスを設定します。",
     },
 
+    # ── Auto-Mirror ──
+    "lake.mirror.title": {
+        "en": "Auto-Mirror: Schema → Iceberg → Snowflake",
+        "ja": "Auto-Mirror: スキーマ → Iceberg → Snowflake",
+    },
+    "lake.mirror.desc": {
+        "en": "Automatically mirror all tables in a PostgreSQL schema to pg_lake Iceberg tables. Combined with Snowflake's Catalog-Linked Database, data flows from PostgreSQL to Snowflake with zero manual steps.",
+        "ja": "PostgreSQL スキーマの全テーブルを pg_lake Iceberg テーブルに自動ミラーリングします。Snowflake のカタログリンクデータベースと組み合わせることで、PostgreSQL から Snowflake へ手動作業ゼロでデータが流れます。",
+    },
+    "lake.mirror.step1": {
+        "en": "Install mirror schema",
+        "ja": "mirror スキーマのインストール",
+    },
+    "lake.mirror.step1_desc": {
+        "en": "Creates the <code>mirror</code> schema with helper functions. These functions inspect the catalog to auto-detect PK and timestamp columns, create Iceberg mirrors, and set up pg_incremental pipelines.",
+        "ja": "<code>mirror</code> スキーマとヘルパー関数を作成します。これらの関数はカタログを検査して PK とタイムスタンプ列を自動検出し、Iceberg ミラーを作成し、pg_incremental パイプラインをセットアップします。",
+    },
+    "lake.mirror.fn_setup": {
+        "en": "Mirror all tables in a schema (one command)",
+        "ja": "スキーマ内の全テーブルをミラーリング（1コマンド）",
+    },
+    "lake.mirror.fn_add": {
+        "en": "Add a single table to the mirror",
+        "ja": "単一テーブルをミラーに追加",
+    },
+    "lake.mirror.fn_reconcile": {
+        "en": "Detect and apply UPDATE/DELETE via EXCEPT (partition-scoped)",
+        "ja": "EXCEPT でパーティション範囲の UPDATE/DELETE を検出・反映",
+    },
+    "lake.mirror.fn_status": {
+        "en": "Show sync status for all mirrored tables",
+        "ja": "全ミラーテーブルの同期状況を表示",
+    },
+    "lake.mirror.fn_teardown": {
+        "en": "Remove mirror tables, pipelines, and registry",
+        "ja": "ミラーテーブル、パイプライン、レジストリを削除",
+    },
+    "lake.mirror.step2": {
+        "en": "Create sample app tables",
+        "ja": "サンプルアプリテーブルの作成",
+    },
+    "lake.mirror.step2_desc": {
+        "en": "Create an <code>app</code> schema with orders, customers, and products tables. Each table has a PRIMARY KEY and a <code>created_at</code> timestamp — the two conventions mirror.setup() requires.",
+        "ja": "<code>app</code> スキーマに orders, customers, products テーブルを作成します。各テーブルには PRIMARY KEY と <code>created_at</code> タイムスタンプがあります — mirror.setup() が必要とする2つの規約です。",
+    },
+    "lake.mirror.step3": {
+        "en": "Run mirror.setup()",
+        "ja": "mirror.setup() の実行",
+    },
+    "lake.mirror.step3_desc": {
+        "en": "One command mirrors all tables. For each table, mirror.setup() auto-detects PK and timestamp columns, creates the Iceberg mirror, bulk-loads existing data, and registers a pg_incremental pipeline.",
+        "ja": "1コマンドで全テーブルをミラーリング。各テーブルに対して PK とタイムスタンプ列を自動検出し、Iceberg ミラーを作成し、既存データを一括ロードし、pg_incremental パイプラインを登録します。",
+    },
+    "lake.mirror.step3_auto": {
+        "en": "Auto-detects: PRIMARY KEY → row identity for reconciliation, <code>created_at</code> / timestamp columns → pg_incremental time window",
+        "ja": "自動検出: PRIMARY KEY → 差分補正の行特定, <code>created_at</code> / タイムスタンプ列 → pg_incremental の時間ウィンドウ",
+    },
+    "lake.mirror.step4": {
+        "en": "Check sync status",
+        "ja": "同期状況の確認",
+    },
+    "lake.mirror.step4_desc": {
+        "en": "Verify that all tables are mirrored and row counts match between source and destination.",
+        "ja": "全テーブルがミラーされ、ソースとデスティネーションの行数が一致していることを確認します。",
+    },
+    "lake.mirror.step5": {
+        "en": "Enable automatic sync (pg_cron)",
+        "ja": "自動同期の有効化 (pg_cron)",
+    },
+    "lake.mirror.step5_desc": {
+        "en": "Schedule two pg_cron jobs: INSERT pipeline execution every 1 minute, and UPDATE/DELETE reconciliation every 15 minutes.",
+        "ja": "2つの pg_cron ジョブをスケジュール: INSERT パイプライン実行（毎分）、UPDATE/DELETE 差分補正（15分ごと）。",
+    },
+    "lake.mirror.cron_detail": {
+        "en": "Two cron jobs are created:",
+        "ja": "2つの cron ジョブが作成されます:",
+    },
+    "lake.mirror.step6": {
+        "en": "Test INSERT sync",
+        "ja": "INSERT 同期のテスト",
+    },
+    "lake.mirror.step6_desc": {
+        "en": "Insert a row into app.orders, run the pipeline manually, and verify it appears in app_mirror.orders.",
+        "ja": "app.orders に行を挿入し、パイプラインを手動実行して、app_mirror.orders に反映されることを確認します。",
+    },
+    "lake.mirror.step6b": {
+        "en": "Execute pipeline and verify",
+        "ja": "パイプライン実行 → 確認",
+    },
+    "lake.mirror.step7": {
+        "en": "Test UPDATE/DELETE reconciliation",
+        "ja": "UPDATE/DELETE 差分補正のテスト",
+    },
+    "lake.mirror.step7_desc": {
+        "en": "UPDATE and DELETE rows in app.orders, then run reconciliation. The EXCEPT-based diff detects changes within the last day's partition and applies them to the mirror.",
+        "ja": "app.orders で行を UPDATE/DELETE し、差分補正を実行します。EXCEPT ベースの差分検出が直近1日分のパーティション内の変更を検出し、ミラーに反映します。",
+    },
+    "lake.mirror.step7b": {
+        "en": "Run reconciliation and verify",
+        "ja": "差分補正の実行 → 確認",
+    },
+    "lake.mirror.step7c": {
+        "en": "Verify row counts match",
+        "ja": "行数の一致を確認",
+    },
+    "lake.mirror.step8": {
+        "en": "Snowflake Catalog Integration (auto-discovery)",
+        "ja": "Snowflake カタログインテグレーション（自動検出）",
+    },
+    "lake.mirror.step8_desc": {
+        "en": "Run these 2 commands on the <strong>Snowflake side</strong>. After this, all Iceberg tables in <code>app_mirror</code> are automatically visible in Snowflake — no per-table registration or manual REFRESH needed.",
+        "ja": "以下の2コマンドを <strong>Snowflake 側</strong>で実行します。これ以降、<code>app_mirror</code> の全 Iceberg テーブルが Snowflake に自動的に表示されます — テーブルごとの登録や手動 REFRESH は不要です。",
+    },
+    "lake.mirror.step8_note": {
+        "en": "Requires Snowflake Postgres. Run these commands in a Snowflake Worksheet, not in this app.",
+        "ja": "Snowflake Postgres が必要です。これらのコマンドはこのアプリ内ではなく Snowflake Worksheet で実行してください。",
+    },
+
     # ── Scripts & Scenarios ──
     "scripts.title": {"en": "Scripts & Scenarios", "ja": "Scripts & Scenarios"},
     "scripts.sql_info": {

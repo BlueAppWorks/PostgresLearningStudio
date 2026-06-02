@@ -1,0 +1,460 @@
+{% extends "base.html" %}
+{% block title %}Auto-Mirror — Postgres Learning Studio{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb"><ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/pg-lake/">pg_lake</a></li>
+    <li class="breadcrumb-item active">Auto-Mirror</li>
+</ol></nav>
+
+<h2>{{ t('lake.mirror.title') }}</h2>
+<p>{{ t('lake.mirror.desc') }}</p>
+
+{% if not pg_lake_status.installed %}
+<div class="alert alert-warning mb-3">
+    pg_lake is not installed. <a href="/pg-lake/setup" class="alert-link">Complete the Getting Started guide</a> first.
+</div>
+{% endif %}
+
+<div class="alert alert-light border small mb-4">
+    <strong>Architecture:</strong>
+    <pre class="mb-0" style="font-size:0.78rem">PostgreSQL                                  Snowflake
+┌───────────────────────────────┐           ┌──────────────────────────┐
+│ app schema (OLTP/heap)        │           │ pg_mirror_db (linked)    │
+│  orders, customers, products  │           │  app_mirror.orders       │
+│         │                     │           │  app_mirror.customers    │
+│   mirror.setup('app')         │           │  app_mirror.products     │
+│         │                     │           │       ▲ AUTO_REFRESH     │
+│         ▼                     │           │       │                  │
+│ app_mirror schema (Iceberg)   │──catalog──│ Catalog Integration      │
+│  pg_incremental (INSERT/1min) │  linked   │ (SNOWFLAKE_POSTGRES)     │
+│  EXCEPT reconcile (UPD+DEL)   │  database │                          │
+└───────────────────────────────┘           └──────────────────────────┘</pre>
+</div>
+
+<!-- Reset -->
+<div class="mb-4">
+    <button class="btn btn-outline-danger btn-sm" data-bs-toggle="collapse" data-bs-target="#resetPanel">Show Reset</button>
+    <div class="collapse mt-2" id="resetPanel">
+        <pre class="bg-dark text-light p-3 rounded"><code id="resetSql">-- Remove mirror cron jobs, pipelines, and schemas
+SELECT mirror.teardown('app', 'app_mirror');
+DROP SCHEMA IF EXISTS mirror CASCADE;
+DROP SCHEMA IF EXISTS app CASCADE;
+DROP SCHEMA IF EXISTS app_mirror CASCADE;</code></pre>
+        <button class="btn btn-outline-danger btn-sm" onclick="runQuery('resetSql', 'resetResult')">Reset All</button>
+        <div id="resetResult"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 1: Install mirror schema                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 1: {{ t('lake.mirror.step1') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step1_desc') }}</p>
+        <div class="alert alert-light border small">
+            <strong>mirror schema functions:</strong>
+            <table class="table table-sm table-borderless mb-0" style="font-size:0.8rem">
+                <tr><td><code>mirror.setup(src, dst)</code></td><td>{{ t('lake.mirror.fn_setup') }}</td></tr>
+                <tr><td><code>mirror.add_table(...)</code></td><td>{{ t('lake.mirror.fn_add') }}</td></tr>
+                <tr><td><code>mirror.reconcile_all()</code></td><td>{{ t('lake.mirror.fn_reconcile') }}</td></tr>
+                <tr><td><code>mirror.status()</code></td><td>{{ t('lake.mirror.fn_status') }}</td></tr>
+                <tr><td><code>mirror.teardown(src, dst)</code></td><td>{{ t('lake.mirror.fn_teardown') }}</td></tr>
+            </table>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="installMirror()">Install mirror schema</button>
+        <div id="step1Result" class="mt-2"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 2: Create sample app tables                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 2: {{ t('lake.mirror.step2') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step2_desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code id="step2Sql">CREATE SCHEMA IF NOT EXISTS app;
+
+CREATE TABLE IF NOT EXISTS app.orders (
+    order_id    BIGSERIAL PRIMARY KEY,
+    customer_id BIGINT NOT NULL,
+    product_id  BIGINT NOT NULL,
+    quantity    INT NOT NULL DEFAULT 1,
+    amount      NUMERIC(10,2) NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS app.customers (
+    customer_id BIGSERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    email       TEXT NOT NULL,
+    region      TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS app.products (
+    product_id  BIGSERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    price       NUMERIC(10,2) NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Sample data
+INSERT INTO app.customers (name, email, region)
+SELECT
+    'Customer ' || i,
+    'user' || i || '@example.com',
+    (ARRAY['Tokyo','Osaka','Nagoya','Fukuoka','Sapporo'])[1 + (i % 5)]
+FROM generate_series(1, 500) i
+ON CONFLICT DO NOTHING;
+
+INSERT INTO app.products (name, category, price)
+SELECT
+    'Product ' || i,
+    (ARRAY['Electronics','Books','Clothing','Food','Tools'])[1 + (i % 5)],
+    (random() * 9990 + 10)::numeric(10,2)
+FROM generate_series(1, 100) i
+ON CONFLICT DO NOTHING;
+
+INSERT INTO app.orders (customer_id, product_id, quantity, amount, status, created_at)
+SELECT
+    1 + (random() * 499)::int,
+    1 + (random() * 99)::int,
+    1 + (random() * 4)::int,
+    (random() * 50000)::numeric(10,2),
+    (ARRAY['pending','confirmed','shipped','delivered'])[1 + (i % 4)],
+    now() - (random() * interval '30 days')
+FROM generate_series(1, 10000) i;
+
+SELECT 'app.orders' AS tbl, count(*) AS rows FROM app.orders
+UNION ALL SELECT 'app.customers', count(*) FROM app.customers
+UNION ALL SELECT 'app.products', count(*) FROM app.products;</code></pre>
+        <button class="btn btn-outline-primary btn-sm" onclick="runQuery('step2Sql', 'step2Result')">Run</button>
+        <div id="step2Result" class="mt-2"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 3: mirror.setup()                                    -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 3: {{ t('lake.mirror.step3') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step3_desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>SELECT mirror.setup('app', 'app_mirror');</code></pre>
+        <p class="small">{{ t('lake.mirror.step3_auto') }}</p>
+        <button class="btn btn-primary btn-sm" onclick="runMirrorSetup()">Run mirror.setup()</button>
+        <div id="step3Result" class="mt-2"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 4: Check status                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 4: {{ t('lake.mirror.step4') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step4_desc') }}</p>
+        <pre class="bg-dark text-light p-3 rounded"><code>SELECT * FROM mirror.status();</code></pre>
+        <button class="btn btn-outline-primary btn-sm" onclick="runMirrorStatus()">Check Status</button>
+        <div id="step4Result" class="mt-2"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 5: Enable pg_cron auto-sync                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 5: {{ t('lake.mirror.step5') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step5_desc') }}</p>
+        <div class="alert alert-light border small">
+            <strong>{{ t('lake.mirror.cron_detail') }}</strong>
+            <ul class="mb-0">
+                <li><code>mirror_pipelines</code> — INSERT sync every 1 minute (pg_incremental)</li>
+                <li><code>mirror_reconcile</code> — UPDATE/DELETE reconciliation every 15 minutes (EXCEPT)</li>
+            </ul>
+        </div>
+        <div class="d-flex gap-2 mb-2">
+            <button class="btn btn-success btn-sm" onclick="setupMirrorCron()">Enable Auto-Sync</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="removeMirrorCron()">Disable</button>
+        </div>
+        <div id="step5Result"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 6: Test INSERT sync                                  -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 6: {{ t('lake.mirror.step6') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step6_desc') }}</p>
+
+        <h6>6a: INSERT into app.orders</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="step6aSql">INSERT INTO app.orders (customer_id, product_id, quantity, amount, status)
+VALUES (1, 1, 99, 99999.99, 'test_insert')
+RETURNING order_id, amount, status, created_at;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('step6aSql', 'step6aResult')">Run INSERT</button>
+        <div id="step6aResult"></div>
+
+        <h6>6b: {{ t('lake.mirror.step6b') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="step6bSql">CALL incremental.execute_pipeline('mirror_app_orders');
+
+SELECT 'app.orders' AS source, count(*) AS rows FROM app.orders WHERE status = 'test_insert'
+UNION ALL
+SELECT 'app_mirror.orders', count(*) FROM app_mirror.orders WHERE status = 'test_insert';</code></pre>
+        <button class="btn btn-primary btn-sm mb-3" onclick="runQuery('step6bSql', 'step6bResult')">Sync &amp; Verify</button>
+        <div id="step6bResult"></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 7: Test UPDATE/DELETE reconciliation                 -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 7: {{ t('lake.mirror.step7') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step7_desc') }}</p>
+
+        <h6>7a: UPDATE + DELETE in app.orders</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="step7aSql">UPDATE app.orders SET status = 'test_updated', amount = 1.00
+WHERE status = 'test_insert';
+
+DELETE FROM app.orders
+WHERE order_id = (SELECT min(order_id) FROM app.orders WHERE status = 'pending');
+
+SELECT status, count(*) FROM app.orders
+WHERE status IN ('test_insert', 'test_updated') GROUP BY status;</code></pre>
+        <button class="btn btn-outline-primary btn-sm mb-3" onclick="runQuery('step7aSql', 'step7aResult')">Run UPDATE + DELETE</button>
+        <div id="step7aResult"></div>
+
+        <h6>7b: {{ t('lake.mirror.step7b') }}</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code>SELECT mirror.reconcile_all();</code></pre>
+        <button class="btn btn-primary btn-sm" onclick="runReconcile()">Run Reconciliation</button>
+        <div id="step7bResult" class="mt-2"></div>
+
+        <h6 class="mt-3">7c: {{ t('lake.mirror.step7c') }}</h6>
+        <button class="btn btn-outline-primary btn-sm" onclick="runMirrorStatus()">Check Status</button>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- Step 8: Snowflake Catalog Integration                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+    <div class="card-header"><h5 class="mb-0">Step 8: {{ t('lake.mirror.step8') }}</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">{{ t('lake.mirror.step8_desc') }}</p>
+        <div class="alert alert-info border small">
+            <strong>{{ t('lake.mirror.step8_note') }}</strong>
+        </div>
+
+        <h6>8a: Create Catalog Integration (Snowflake)</h6>
+        <div class="mb-2">
+            <label class="form-label small">Postgres Instance Name:</label>
+            <input type="text" class="form-control form-control-sm" id="cfgInstance"
+                   value="{{ instance_name }}" oninput="regenerateSnowSql()" style="max-width:400px">
+        </div>
+        <pre class="bg-dark text-light p-3 rounded"><code id="snow8a">-- Run in Snowflake Worksheet as ACCOUNTADMIN</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="copyEl('snow8a')">Copy</button>
+
+        <h6>8b: Create Catalog-Linked Database (Snowflake)</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="snow8b">-- Auto-discovers all Iceberg tables in app_mirror</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="copyEl('snow8b')">Copy</button>
+
+        <h6>8c: Query from Snowflake</h6>
+        <pre class="bg-dark text-light p-3 rounded"><code id="snow8c">-- Same data, zero ETL</code></pre>
+        <button class="btn btn-outline-secondary btn-sm mb-3" onclick="copyEl('snow8c')">Copy</button>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function resultTable(data) {
+    if (!data.columns || !data.rows) return '';
+    let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+    html += '<thead><tr>' + data.columns.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+    for (const row of data.rows) {
+        html += '<tr>' + row.map(v => `<td>${v ?? ''}</td>`).join('') + '</tr>';
+    }
+    return html + '</tbody></table></div>';
+}
+
+function runQuery(sqlElId, resultElId) {
+    const sql = document.getElementById(sqlElId).textContent;
+    const el = document.getElementById(resultElId);
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running...';
+    fetch('/pg-lake/lake-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+        if (data.message) { el.innerHTML = `<div class="alert alert-success">${data.message}</div>`; return; }
+        el.innerHTML = resultTable(data);
+    })
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function showStepResults(elId, data) {
+    const el = document.getElementById(elId);
+    if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+    if (data.results) {
+        let html = '<div class="alert alert-info"><ul class="mb-0">';
+        for (const r of data.results) {
+            const icon = r.status === 'ok' ? '✅' : '❌';
+            html += `<li>${icon} ${r.label}`;
+            if (r.time_ms) html += ` (${r.time_ms}ms)`;
+            if (r.error) html += ` — <span class="text-danger">${r.error}</span>`;
+            if (r.value) html += ` — <code>${r.value}</code>`;
+            html += '</li>';
+        }
+        el.innerHTML = html + '</ul></div>';
+    } else if (data.result) {
+        const arr = Array.isArray(data.result) ? data.result : [data.result];
+        let html = '<div class="alert alert-info"><ul class="mb-0">';
+        for (const item of arr) {
+            const icon = item.status === 'ok' ? '✅' : (item.status === 'skipped' ? '⏭️' : '❌');
+            html += `<li>${icon} <strong>${item.table}</strong>`;
+            if (item.status === 'ok') {
+                if (item.rows_loaded !== undefined) html += ` — ${item.rows_loaded} rows loaded`;
+                if (item.pk) html += `, PK: ${JSON.stringify(item.pk)}`;
+                if (item.ts_column) html += `, ts: ${item.ts_column}`;
+                if (item.updated !== undefined) html += ` — updated: ${item.updated}, deleted: ${item.deleted}`;
+            }
+            if (item.reason) html += ` — ${item.reason}`;
+            html += '</li>';
+        }
+        el.innerHTML = html + '</ul></div>';
+    }
+}
+
+function installMirror() {
+    const el = document.getElementById('step1Result');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Installing mirror schema...';
+    fetch('/pg-lake/mirror-install', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => showStepResults('step1Result', data))
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function runMirrorSetup() {
+    const el = document.getElementById('step3Result');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running mirror.setup()...';
+    fetch('/pg-lake/mirror-run', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({src_schema: 'app', dst_schema: 'app_mirror'})
+    })
+    .then(r => r.json())
+    .then(data => showStepResults('step3Result', data))
+    .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function runMirrorStatus() {
+    const el = document.getElementById('step4Result');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+    fetch('/pg-lake/mirror-status', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+            el.innerHTML = resultTable(data);
+        })
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function setupMirrorCron() {
+    const el = document.getElementById('step5Result');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Setting up pg_cron...';
+    fetch('/pg-lake/mirror-cron', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => showStepResults('step5Result', data))
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function removeMirrorCron() {
+    const el = document.getElementById('step5Result');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+    fetch('/pg-lake/mirror-cron-remove', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) el.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            else el.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+        })
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function runReconcile() {
+    const el = document.getElementById('step7bResult');
+    el.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Reconciling...';
+    fetch('/pg-lake/mirror-reconcile', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => showStepResults('step7bResult', data))
+        .catch(e => { el.innerHTML = `<div class="alert alert-danger">${e}</div>`; });
+}
+
+function copyEl(id) {
+    const text = document.getElementById(id)?.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+        event.target.textContent = 'Copied!';
+        setTimeout(() => event.target.textContent = 'Copy', 1500);
+    });
+}
+
+function regenerateSnowSql() {
+    const inst = document.getElementById('cfgInstance')?.value || 'YOUR_INSTANCE_NAME';
+
+    document.getElementById('snow8a').textContent =
+`-- Run in Snowflake Worksheet as ACCOUNTADMIN
+USE ROLE ACCOUNTADMIN;
+
+CREATE OR REPLACE CATALOG INTEGRATION pg_lake_catalog
+  CATALOG_SOURCE = SNOWFLAKE_POSTGRES
+  TABLE_FORMAT = ICEBERG
+  CATALOG_NAMESPACE = 'app_mirror'
+  REST_CONFIG = (
+    POSTGRES_INSTANCE = '${inst}'
+    CATALOG_NAME = 'benchmark'
+    ACCESS_DELEGATION_MODE = VENDED_CREDENTIALS
+  )
+  ENABLED = TRUE;`;
+
+    document.getElementById('snow8b').textContent =
+`-- Create catalog-linked database (auto-discovers all Iceberg tables)
+CREATE DATABASE pg_mirror_db
+  LINKED_CATALOG = (
+    CATALOG = pg_lake_catalog
+    ALLOWED_WRITE_OPERATIONS = NONE
+  );
+
+-- Snowflake automatically discovers:
+--   pg_mirror_db.app_mirror.orders
+--   pg_mirror_db.app_mirror.customers
+--   pg_mirror_db.app_mirror.products
+-- No manual CREATE ICEBERG TABLE needed.
+-- No manual REFRESH needed (AUTO_REFRESH).`;
+
+    document.getElementById('snow8c').textContent =
+`-- Query mirrored data from Snowflake (zero ETL)
+SELECT status, count(*) AS orders, sum(amount) AS total
+FROM pg_mirror_db.app_mirror.orders
+GROUP BY status ORDER BY total DESC;
+
+SELECT c.region, count(DISTINCT o.order_id) AS orders
+FROM pg_mirror_db.app_mirror.orders o
+JOIN pg_mirror_db.app_mirror.customers c USING (customer_id)
+GROUP BY c.region ORDER BY orders DESC;`;
+}
+
+regenerateSnowSql();
+</script>
+{% endblock %}
